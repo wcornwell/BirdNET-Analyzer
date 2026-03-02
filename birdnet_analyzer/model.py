@@ -338,7 +338,8 @@ def upsample_core(x: np.ndarray, y: np.ndarray, min_samples: int, apply, size=2)
         # Determine if 1 or 0 is the minority class
         minority_label = 1 if y.sum(axis=0) < len(y) - y.sum(axis=0) else 0
 
-        while np.where(y == minority_label)[0].shape[0] + len(y_temp) < min_samples:
+        added_count = 0
+        while np.where(y == minority_label)[0].shape[0] + added_count < min_samples:
             # Randomly choose a sample from the minority class
             random_index = rng.choice(np.where(y == minority_label)[0], size=size)
 
@@ -346,9 +347,12 @@ def upsample_core(x: np.ndarray, y: np.ndarray, min_samples: int, apply, size=2)
             x_app, y_app = apply(x, y, random_index)
             y_temp.append(y_app)
             x_temp.append(x_app)
+            added_count += 1
     else:
         for i in range(y.shape[1]):
-            while y[:, i].sum() + len(y_temp) < min_samples:
+            # Count only samples added for THIS class, not all classes
+            added_for_class = sum(1 for label in y_temp if label[i] == 1) if y_temp else 0
+            while y[:, i].sum() + added_for_class < min_samples:
                 try:
                     # Randomly choose a sample from the minority class
                     random_index = rng.choice(np.where(y[:, i] == 1)[0], size=size)
@@ -359,6 +363,7 @@ def upsample_core(x: np.ndarray, y: np.ndarray, min_samples: int, apply, size=2)
                 x_app, y_app = apply(x, y, random_index)
                 y_temp.append(y_app)
                 x_temp.append(x_app)
+                added_for_class += 1
 
     return x_temp, y_temp
 
@@ -853,22 +858,15 @@ def train_linear_classifier(
     y_pred = (y_prob >= threshold).astype(int)
 
     # Overall metrics
-    prec_micro, rec_micro, _, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="micro", zero_division=0
-    )
-    prec_macro, rec_macro, _, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="macro", zero_division=0
-    )
+    prec_micro, rec_micro, _, _ = precision_recall_fscore_support(y_true, y_pred, average="micro", zero_division=0)
+    prec_macro, rec_macro, _, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
     print(
-        f"[VAL] Overall (micro)  Precision={prec_micro:.4f}  Recall={rec_micro:.4f}\n"
-        f"[VAL] Overall (macro)  Precision={prec_macro:.4f}  Recall={rec_macro:.4f}",
+        f"[VAL] Overall (micro)  Precision={prec_micro:.4f}  Recall={rec_micro:.4f}\n[VAL] Overall (macro)  Precision={prec_macro:.4f}  Recall={rec_macro:.4f}",
         flush=True,
     )
 
     # Per-class metrics
-    prec_cls, rec_cls, _, _ = precision_recall_fscore_support(
-        y_true, y_pred, average=None, zero_division=0
-    )
+    prec_cls, rec_cls, _, _ = precision_recall_fscore_support(y_true, y_pred, average=None, zero_division=0)
 
     # Index → label mapping (falls back to index if labels missing)
     labels = getattr(cfg, "LABELS", None)
@@ -937,8 +935,6 @@ def train_linear_classifier(
         print(f"[WARN] Could not write metrics CSV ({e}).", flush=True)
 
     return classifier, history
-
-
 
 
 def save_linear_classifier(classifier, model_path: str, labels: list[str], mode: Literal["replace", "append"] = "replace"):
