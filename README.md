@@ -28,11 +28,13 @@
 
 > **⚠ Fork Notice**
 >
-> This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer). It contains two changes to the main branch:
+> This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer). It contains three changes to the main branch:
 >
 > 1. **Per-class validation metrics** — After training a custom classifier, per-class precision and recall are computed on the validation set. The worst-10 classes by precision and recall are printed, and a full `_validation_metrics.csv` is written alongside the model output. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/f41b970))
 >
 > 2. **Upsampling bug fix** — The `upsample_core` function used a shared global counter (`len(y_temp)`) across all classes. After upsampling the first underrepresented class, the inflated counter prevented subsequent minority classes from being upsampled. The fix uses a per-class counter so each class is independently brought up to `min_samples`. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/e8f7e80))
+>
+> 3. **Upsampling summary with label names** — During training, the upsampling step now prints a human-readable summary showing the reference class name, the target sample count, how many classes need upsampling, and the 5 smallest classes by name. This replaces numeric indices with actual species/label names throughout the output.
 
 ---
 

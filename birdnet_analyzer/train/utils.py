@@ -263,6 +263,7 @@ def _load_training_data(cache_mode=None, cache_file="", progress_callback=None):
     # Return only the valid labels for further use
     return x_train, y_train, x_test, y_test, valid_labels
 
+
 def train_model(on_epoch_end=None, on_trial_result=None, on_data_load_end=None, autotune_directory="autotune"):
     """Trains a custom classifier.
 
@@ -416,6 +417,7 @@ def train_model(on_epoch_end=None, on_trial_result=None, on_data_load_end=None, 
                             parent_name="focal_loss",
                             parent_values=[True],
                         ),
+                        labels=labels,
                     )
 
                     # Get the best validation AUPRC instead of loss
@@ -513,6 +515,7 @@ def train_model(on_epoch_end=None, on_trial_result=None, on_data_load_end=None, 
             focal_loss_gamma=cfg.FOCAL_LOSS_GAMMA,
             focal_loss_alpha=cfg.FOCAL_LOSS_ALPHA,
             on_epoch_end=on_epoch_end,
+            labels=labels,
         )
     except model.get_empty_class_exception() as e:
         e.message = f"Class with label {labels[e.index]} is empty. Please remove it from the training data."
@@ -532,7 +535,7 @@ def train_model(on_epoch_end=None, on_trial_result=None, on_data_load_end=None, 
     print("Saving model...", flush=True)
 
     try:
-        classifier.pop() # Remove activation
+        classifier.pop()  # Remove activation
 
         if cfg.TRAINED_MODEL_OUTPUT_FORMAT == "both":
             model.save_raven_model(classifier, cfg.CUSTOM_CLASSIFIER, labels, mode=cfg.TRAINED_MODEL_SAVE_MODE)

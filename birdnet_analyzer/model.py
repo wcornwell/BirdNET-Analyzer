@@ -368,7 +368,7 @@ def upsample_core(x: np.ndarray, y: np.ndarray, min_samples: int, apply, size=2)
     return x_temp, y_temp
 
 
-def upsampling(x: np.ndarray, y: np.ndarray, ratio=0.5, mode="repeat"):
+def upsampling(x: np.ndarray, y: np.ndarray, ratio=0.5, mode="repeat", labels=None):
     """Balance data through upsampling.
 
     We upsample minority classes to have at least 10% (ratio=0.1) of the samples of the majority class.
@@ -378,6 +378,7 @@ def upsampling(x: np.ndarray, y: np.ndarray, ratio=0.5, mode="repeat"):
         y: One-hot labels.
         ratio: The minimum ratio of minority to majority samples.
         mode: The upsampling mode. Either 'repeat', 'mean', 'linear' or 'smote'.
+        labels: Optional list of label names for summary output.
 
     Returns:
         Upsampled data.
@@ -388,6 +389,29 @@ def upsampling(x: np.ndarray, y: np.ndarray, ratio=0.5, mode="repeat"):
 
     # Determine min number of samples
     min_samples = int(max(y.sum(axis=0), len(y) - y.sum(axis=0)) * ratio) if cfg.BINARY_CLASSIFICATION else int(np.max(y.sum(axis=0)) * ratio)
+
+    # Print upsampling summary
+    if not cfg.BINARY_CLASSIFICATION:
+        class_counts = y.sum(axis=0).astype(int)
+        max_class_idx = int(np.argmax(class_counts))
+        max_class_count = int(class_counts[max_class_idx])
+        max_class_name = labels[max_class_idx] if labels else f"class {max_class_idx}"
+        num_below = int(np.sum(class_counts < min_samples))
+        deficit = int(np.sum(np.maximum(0, min_samples - class_counts)))
+
+        print(f"Upsampling summary (mode={mode}, ratio={ratio}):")
+        print(f"  Reference class: {max_class_name} ({max_class_count} training samples)")
+        print(f"  Target min samples per class: {min_samples}")
+        print(f"  Classes below target: {num_below}/{len(class_counts)}")
+        print(f"  Estimated samples to add: {deficit}")
+
+        # Show the 5 smallest classes
+        sorted_indices = np.argsort(class_counts)
+        n_show = min(5, len(sorted_indices))
+        print("  Smallest classes:")
+        for idx in sorted_indices[:n_show]:
+            name = labels[int(idx)] if labels else f"class {int(idx)}"
+            print(f"    {name}: {int(class_counts[idx])} samples")
 
     x_temp = []
     y_temp = []
@@ -695,6 +719,7 @@ def train_linear_classifier(
     focal_loss_gamma=2.0,
     focal_loss_alpha=0.25,
     on_epoch_end=None,
+    labels=None,
 ):
     """Trains a custom classifier.
 
@@ -758,7 +783,7 @@ def train_linear_classifier(
 
     # Upsample training data
     if upsampling_ratio > 0:
-        x_train, y_train = upsampling(x_train, y_train, upsampling_ratio, upsampling_mode)
+        x_train, y_train = upsampling(x_train, y_train, upsampling_ratio, upsampling_mode, labels=labels)
         print(f"Upsampled training data to {x_train.shape[0]} samples.", flush=True)
 
     # Apply mixup to training data
