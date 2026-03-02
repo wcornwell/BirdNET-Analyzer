@@ -24,6 +24,18 @@
 
 </div>
 
+---
+
+> **⚠ Fork Notice**
+>
+> This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer). It contains two changes to the main branch:
+>
+> 1. **Per-class validation metrics** — After training a custom classifier, per-class precision and recall are computed on the validation set. The worst-10 classes by precision and recall are printed, and a full `_validation_metrics.csv` is written alongside the model output. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/f41b970))
+>
+> 2. **Upsampling bug fix** — The `upsample_core` function used a shared global counter (`len(y_temp)`) across all classes. After upsampling the first underrepresented class, the inflated counter prevented subsequent minority classes from being upsampled. The fix uses a per-class counter so each class is independently brought up to `min_samples`. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/e8f7e80))
+
+---
+
 This repo contains BirdNET scripts for processing large amounts of audio data or single audio files.
 This is the most advanced version of BirdNET for acoustic analyses and we will keep this repository up-to-date with new models and improved interfaces to enable scientists with no CS background to run the analysis.
 
