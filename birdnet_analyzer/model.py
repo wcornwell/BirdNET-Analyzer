@@ -826,9 +826,119 @@ def train_linear_classifier(
     )
 
     # Train model
-    history = classifier.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(x_val, y_val), callbacks=callbacks)
+    history = classifier.fit(
+        x_train,
+        y_train,
+        epochs=epochs,
+        batch_size=batch_size,
+        validation_data=(x_val, y_val),
+        callbacks=callbacks,
+    )
+
+    # --- AFTER training; summarize final validation metrics ---
+    try:
+        from sklearn.metrics import precision_recall_fscore_support
+    except Exception as e:
+        print(f"[WARN] Could not import scikit-learn metrics ({e}). Skipping metrics summary.")
+        return classifier, history
+
+    # Predict probabilities on the held-out validation set
+    y_prob = classifier.predict(x_val, batch_size=batch_size, verbose=0)
+
+    # Convert labels to {0,1} in case they contain {-1,1}
+    y_true = (y_val > 0).astype(int)
+
+    # Threshold probabilities → binary predictions
+    threshold = 0.5  # adjust if you use a different operating point
+    y_pred = (y_prob >= threshold).astype(int)
+
+    # Overall metrics
+    prec_micro, rec_micro, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="micro", zero_division=0
+    )
+    prec_macro, rec_macro, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="macro", zero_division=0
+    )
+    print(
+        f"[VAL] Overall (micro)  Precision={prec_micro:.4f}  Recall={rec_micro:.4f}\n"
+        f"[VAL] Overall (macro)  Precision={prec_macro:.4f}  Recall={rec_macro:.4f}",
+        flush=True,
+    )
+
+    # Per-class metrics
+    prec_cls, rec_cls, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average=None, zero_division=0
+    )
+
+    # Index → label mapping (falls back to index if labels missing)
+    labels = getattr(cfg, "LABELS", None)
+
+    def lname(i: int) -> str:
+        try:
+            return labels[i] if labels is not None else f"class_{i}"
+        except Exception:
+            return f"class_{i}"
+
+    # Worst 10 by precision
+    worst_p_idx = prec_cls.argsort()[:10]
+    print("\n[VAL] Worst 10 classes by Precision:")
+    for i in worst_p_idx:
+        print(f"  {lname(i):<40s}  P={prec_cls[i]:.4f}  R={rec_cls[i]:.4f}")
+
+    # Worst 10 by recall
+    worst_r_idx = rec_cls.argsort()[:10]
+    print("\n[VAL] Worst 10 classes by Recall:")
+    for i in worst_r_idx:
+        print(f"  {lname(i):<40s}  P={prec_cls[i]:.4f}  R={rec_cls[i]:.4f}")
+
+    # --- NEW: write overall + per-species precision/recall to CSV ---
+    try:
+        output_bases: list[str] = []
+
+        # 1) Prefer the configured custom classifier path (if any)
+        custom_classifier_path = getattr(cfg, "CUSTOM_CLASSIFIER", None)
+        if custom_classifier_path:
+            output_bases.append(custom_classifier_path)
+
+        # 2) Also use the configured model path (if any)
+        model_path_cfg = getattr(cfg, "MODEL_PATH", None)
+        if model_path_cfg and model_path_cfg not in output_bases:
+            output_bases.append(model_path_cfg)
+
+        # 3) Fallback: use classifier.name in SCRIPT_DIR
+        if not output_bases:
+            model_name = getattr(classifier, "name", "classifier")
+            output_bases.append(os.path.join(SCRIPT_DIR, model_name))
+
+        for base in output_bases:
+            root, _ext = os.path.splitext(base)
+            metrics_path = root + "_validation_metrics.csv"
+
+            # Make sure directory exists (handle empty dir for relative paths)
+            out_dir = os.path.dirname(metrics_path) or "."
+            os.makedirs(out_dir, exist_ok=True)
+
+            with open(metrics_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                # Header
+                writer.writerow(["type", "label", "precision", "recall"])
+
+                # Overall metrics
+                writer.writerow(["overall_micro", "", f"{prec_micro:.6f}", f"{rec_micro:.6f}"])
+                writer.writerow(["overall_macro", "", f"{prec_macro:.6f}", f"{rec_macro:.6f}"])
+
+                # Species-level (per-class) metrics
+                for i, (p, r) in enumerate(zip(prec_cls, rec_cls, strict=True)):
+                    writer.writerow(["species", lname(i), f"{p:.6f}", f"{r:.6f}"])
+
+            print(f"[VAL] Metrics CSV written to: {metrics_path}", flush=True)
+
+    except Exception as e:
+        print(f"[WARN] Could not write metrics CSV ({e}).", flush=True)
 
     return classifier, history
+
+
 
 
 def save_linear_classifier(classifier, model_path: str, labels: list[str], mode: Literal["replace", "append"] = "replace"):
