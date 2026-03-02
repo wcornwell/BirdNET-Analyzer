@@ -893,12 +893,13 @@ def train_linear_classifier(
     # Per-class metrics
     prec_cls, rec_cls, _, _ = precision_recall_fscore_support(y_true, y_pred, average=None, zero_division=0)
 
-    # Index → label mapping (falls back to index if labels missing)
-    labels = getattr(cfg, "LABELS", None)
+    # Index → label mapping: prefer `labels` arg from train_linear_classifier,
+    # fall back to cfg.LABELS, then index-based names
+    _labels = labels or getattr(cfg, "LABELS", None)
 
     def lname(i: int) -> str:
         try:
-            return labels[i] if labels is not None else f"class_{i}"
+            return _labels[i] if _labels is not None else f"class_{i}"
         except Exception:
             return f"class_{i}"
 
