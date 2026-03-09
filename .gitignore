@@ -171,6 +171,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Embedding analysis outputs
+embedding_analysis/
+nature_sounds/
+human_sounds/   
+recognizers/
+
 # GUI generated
 train_data/
 train_cache.npz
