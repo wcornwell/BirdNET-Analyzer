@@ -6,6 +6,12 @@ import csv
 import json
 import logging
 import os
+
+# Set TensorFlow environment variables before any other imports
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["WRAPT_DISABLE_EXTENSIONS"] = "true"
+os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
+
 from typing import Literal
 
 import keras
@@ -1246,7 +1252,7 @@ def predict_with_perch(data: np.ndarray):
             cfg.MODEL_PATH,
         )
 
-    result = PERCH_MODEL.signatures["serving_default"](inputs=data)
+    result = PERCH_MODEL.signatures["serving_default"](inputs=tf.constant(data, dtype="float32"))
 
     return tf.nn.softmax(result["label"], axis=-1).numpy()
 

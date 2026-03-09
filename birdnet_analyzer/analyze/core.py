@@ -1,6 +1,7 @@
 import os
 from typing import Literal
 
+import numpy as np
 from tqdm import tqdm
 
 
@@ -112,6 +113,17 @@ def analyze(
         print(f"Species list contains {len(cfg.SPECIES_LIST)} species")
 
     result_files = []
+
+    # Eagerly load the model to prevent TensorFlow deadlocks on macOS
+    # when initialized concurrently with tqdm's monitor thread or librosa
+    if cfg.USE_PERCH:
+        from birdnet_analyzer.model import predict_with_perch
+
+        predict_with_perch(np.zeros((1, int(cfg.PERCH_SIG_LENGTH * cfg.PERCH_SAMPLE_RATE)), dtype=np.float32))
+    elif not cfg.CUSTOM_CLASSIFIER:
+        from birdnet_analyzer.model import load_model
+
+        load_model()
 
     # Analyze files
     if cfg.CPU_THREADS < 2 or len(flist) < 2:
