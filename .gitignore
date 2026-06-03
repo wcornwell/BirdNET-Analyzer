@@ -171,8 +171,10 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Embedding analysis outputs
-embedding_analysis/
+# Embedding analysis outputs (data files only; scripts are tracked)
+embedding_analysis/*.npz
+embedding_analysis/*.csv
+embedding_analysis/*.txt
 nature_sounds/
 human_sounds/   
 recognizers/
