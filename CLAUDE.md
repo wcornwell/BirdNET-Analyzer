@@ -155,15 +155,18 @@ Scripts in `embedding_analysis/`:
     --output embedding_analysis/reallybig_pelican0-10
 ```
 
-**Categorised centroid plot** → done in `birdnetEmbed` (R), e.g.:
-```r
-library(birdnetEmbed)
-x    <- load_embeddings_npz("embedding_analysis/reallybig_pelican0-10_embeddings.npz")
-cats <- categorize_labels(x,                      # galah/ALA taxonomy
-          overrides = system.file("extdata", "category_overrides.csv",
-                                  package = "birdnetEmbed"))
-plot_centroids(x, categories = cats, label = "pelican0-10")
+**Categorisation + plots (categorised centroid UMAP + confusability panels)**
+→ done in `birdnetEmbed` (R). For a new model the whole thing is one command:
+
+```bash
+BIRDNET_PYTHON=$(pwd)/.venv/bin/python \
+  Rscript ~/Documents/birdnetEmbed/scripts/analyse_model.R \
+    $(pwd)/embedding_analysis/reallybig_pelican0-11_embeddings.npz pelican0-11
 ```
+
+Writes `<label>_{categories.csv,centroids.pdf,confusability_panels.pdf}`. So the
+**per-model recipe** is just: (1) `extract_embeddings.py` here → `.npz`, then
+(2) `analyse_model.R` there. See `birdnetEmbed/CLAUDE.md`.
 
 ---
 
