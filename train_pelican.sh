@@ -18,6 +18,12 @@ TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/real
 OUTPUT_DIR="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers"
 VENV="$(dirname "$0")/.venv/bin/python"
 
+if [[ -e "$OUTPUT_DIR/$NAME.tflite" ]]; then
+    echo "Error: $OUTPUT_DIR/$NAME.tflite already exists." >&2
+    echo "Choose a new name to avoid overwriting an existing recognizer." >&2
+    exit 1
+fi
+
 echo "Training: $NAME"
 echo "Data:     $TRAIN_DATA"
 echo "Output:   $OUTPUT_DIR/$NAME"

@@ -91,7 +91,9 @@ Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 | focal_loss_gamma | 3.0 |
 | epochs | 50 |
 
-Override any parameter by appending flags: `./train_pelican.sh pelican0-11 cache.npz --epochs 100`
+Override any parameter by appending flags: `./train_pelican.sh pelican0-11 --epochs 100`
+
+Appended flags are passed straight through to `birdnet_analyzer.train`, and argparse uses the last value, so an appended `--epochs 100` overrides the baked-in `--epochs 50`. Note: only flag-style overrides work — don't append a bare positional like `cache.npz`, since `train` accepts a single positional (`INPUT`, already set to the reallybig library) and a second one errors out. The main-branch pipeline needs no cache; the `--cache_file` / `--cache_mode` workflow belongs to the slower `sync-upstream-refactor` branch.
 
 ---
 
