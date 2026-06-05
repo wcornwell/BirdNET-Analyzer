@@ -124,26 +124,45 @@ Each run produces:
 
 ## Embedding analysis
 
+This repo owns **embedding extraction** (the part coupled to the fast TFLite
+`model.py` pipeline). Downstream **analysis and visualisation** — taxonomic
+categorisation, UMAP/PCA/t-SNE reduction, misclassification detection, centroid
+plots — live in the separate **`birdnetEmbed`** R package
+(`~/Documents/birdnetEmbed`, GitHub `traitecoevo/birdnetEmbed`), which consumes
+the `.npz`/`.csv` files produced here. Keep that seam: extraction here, analysis
+there. See `birdnetEmbed/CLAUDE.md`.
+
 Scripts in `embedding_analysis/`:
 
 | Script | Purpose |
 |--------|---------|
-| `extract_embeddings.py` | Extract TFLite embeddings from a clip library |
-| `identify_misclassifications.py` | Find clips closer to another class centroid |
+| `extract_embeddings.py` | Extract TFLite embeddings + per-class centroids from a clip library → `*_embeddings.npz`, `*_centroids.csv` |
+| `identify_misclassifications.py` | Find clips closer to another class centroid (label-quality suspects). Standalone Python; also available as `birdnetEmbed::identify_misclassifications()` |
 | `npz_to_cache.py` | Convert per-species .npz to flat training cache |
 
-Workflow for misclassification analysis:
+**Extract (once per model):**
 ```bash
-# 1. Extract (if not already done)
 .venv/bin/python embedding_analysis/extract_embeddings.py \
-    --model recognizers/pelican0-9.tflite \
+    --model /path/to/recognizers/pelican0-10.tflite \
     --input /path/to/reallybig \
-    --output embedding_analysis/reallybig_pelican0-9
+    --output embedding_analysis/reallybig_pelican0-10
+```
 
-# 2. Analyse
+**Misclassification analysis (standalone Python):**
+```bash
 .venv/bin/python embedding_analysis/identify_misclassifications.py \
-    --input embedding_analysis/reallybig_pelican0-9_embeddings.npz \
-    --output embedding_analysis/reallybig_pelican0-9
+    --input embedding_analysis/reallybig_pelican0-10_embeddings.npz \
+    --output embedding_analysis/reallybig_pelican0-10
+```
+
+**Categorised centroid plot** → done in `birdnetEmbed` (R), e.g.:
+```r
+library(birdnetEmbed)
+x    <- load_embeddings_npz("embedding_analysis/reallybig_pelican0-10_embeddings.npz")
+cats <- categorize_labels(x,                      # galah/ALA taxonomy
+          overrides = system.file("extdata", "category_overrides.csv",
+                                  package = "birdnetEmbed"))
+plot_centroids(x, categories = cats, label = "pelican0-10")
 ```
 
 ---
