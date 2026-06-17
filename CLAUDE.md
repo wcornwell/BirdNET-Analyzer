@@ -43,23 +43,11 @@ git merge upstream/main
 # resolve conflicts as needed (model.py and train/utils.py are most likely)
 ```
 
-**Syncing main with upstream** — ⚠️ **do NOT `git merge upstream/main` anymore.**
+**Syncing main with upstream** — ⚠️ **do NOT `git merge upstream/main`, or advance main to `0132334` or later.**
 
-Upstream commit `0132334` ("Replace core with `birdnet` library", #867, 2026-04-30)
-is now the *base* of upstream/main. Its parent (`3286d78`, #896) is the last
-upstream commit that is in main. Merging upstream/main — or advancing main to
-`0132334` or anything after it — pulls in the birdnet-library refactor, which
-main deliberately does not use (it keeps the fast TFLite pipeline). That is the
-purpose of the `sync-upstream-refactor` branch instead.
+Upstream commit `0132334` ("Replace core with `birdnet` library", #867, 2026-04-30) is the base of the birdnet-library refactor that main deliberately avoids (main keeps the fast TFLite pipeline). Its parent `3286d78` (#896) is the last upstream commit in main; merging anything from `0132334` onward pulls in the refactor — that's what `sync-upstream-refactor` is for.
 
-Checked 2026-06-05: of the 10 commits after the refactor on upstream/main, none
-are safely cherry-pickable onto main — the genuine bugfixes either target
-refactor-only code (#900 `save_as_rtable`; #902 search/`threaded_brute_search`)
-or are already present in main (#902 eval-path fix). The rest conflict because
-they build on the refactored tree (#901 cli docs, #903 CI, #905 detached
-classifier, #907 settings move). Only `FUNDING.yml` updates apply cleanly and
-those are irrelevant to a fork. Re-evaluate after each upstream release, but
-default assumption: **post-refactor upstream commits do not belong on main.**
+Checked 2026-06-05: none of the 10 post-refactor commits on upstream/main are safely cherry-pickable onto main — bugfixes either target refactor-only code (#900 `save_as_rtable`, #902 search) or are already in main (#902 eval-path), and the rest conflict on the refactored tree (#901, #903, #905, #907). **Default assumption: post-refactor upstream commits don't belong on main.** Re-evaluate after each upstream release.
 
 ---
 
@@ -188,7 +176,7 @@ from birdnet_analyzer.analyze import analyze
 analyze(
     '/path/to/audio/folder',
     output='/path/to/output',
-    classifier='recognizers/pelican0-9.tflite',
+    classifier='/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers/pelican0-9.tflite',
 )
 "
 ```
@@ -196,7 +184,7 @@ analyze(
 Or via CLI:
 ```bash
 .venv/bin/python -m birdnet_analyzer.analyze /path/to/audio \
-    --classifier recognizers/pelican0-9.tflite \
+    --classifier /Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers/pelican0-9.tflite \
     --output /path/to/output
 ```
 

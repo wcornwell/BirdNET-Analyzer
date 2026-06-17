@@ -189,8 +189,3 @@ BirdNET_analysis_params.csv
 
 # Build files
 entitlements.plist
-
-# Local scratch scripts (not for upstream)
-download_sturt_audio_files.ps1
-download_sturt_robust.sh
-embedding_analysis/analyze_reallybig_fox.py

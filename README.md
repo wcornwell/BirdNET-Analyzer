@@ -13,7 +13,6 @@
 ![Species](https://badgen.net/badge/Species/6512/blue)
 ![Downloads](https://www-user.tu-chemnitz.de/~johau/birdnet_total_downloads_badge.php)
 
-[![Docker](https://github.com/birdnet-team/BirdNET-Analyzer/actions/workflows/docker-build.yml/badge.svg)](https://github.com/birdnet-team/BirdNET-Analyzer/actions/workflows/docker-build.yml)
 [![Reddit](https://img.shields.io/badge/Reddit-FF4500?style=flat&logo=reddit&logoColor=white)](https://www.reddit.com/r/BirdNET_Analyzer/)
 ![GitHub stars)](https://img.shields.io/github/stars/birdnet-team/BirdNET-Analyzer)
 
