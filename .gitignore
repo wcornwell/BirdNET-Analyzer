@@ -189,3 +189,6 @@ BirdNET_analysis_params.csv
 
 # Build files
 entitlements.plist
+
+# Local-only project notes for Claude (not for upstream)
+CLAUDE.md
