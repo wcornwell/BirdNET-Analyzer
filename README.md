@@ -7,7 +7,7 @@
 <br>
 <div align="center">
 
-![License](https://img.shields.io/github/license/birdnet-team/BirdNET-Analyzer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![OS](https://badgen.net/badge/OS/Linux%2C%20Windows%2C%20macOS/blue)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 
