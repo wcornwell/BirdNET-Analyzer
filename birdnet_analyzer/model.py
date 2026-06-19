@@ -910,6 +910,36 @@ def train_linear_classifier(
         except Exception:
             return f"class_{i}"
 
+    # Partition output classes into target SPECIES vs NON-TARGET helpers.
+    # Helpers are the geophony (Environment_*) and anthropophony (Homo sapiens_*)
+    # classes; everything else — incl. domestic animals like Bos taurus_Cattle —
+    # is a target species. (Noise and other non-event classes are already excluded
+    # upstream and have no column here.) The project goal is species P/R, so we
+    # report a species-only macro/micro alongside the all-class numbers.
+    def _is_nontarget(name: str) -> bool:
+        return name.startswith("Environment_") or name.startswith("Homo sapiens_")
+
+    cls_types = ["non_target" if _is_nontarget(lname(i)) else "species" for i in range(len(prec_cls))]
+    sp_cols = [i for i, t in enumerate(cls_types) if t == "species"]
+    nt_cols = [i for i, t in enumerate(cls_types) if t == "non_target"]
+
+    def _subset_pr(cols):
+        """(precision, recall) micro & macro over a subset of class columns."""
+        if not cols:
+            return 0.0, 0.0, 0.0, 0.0
+        yt, yp = y_true[:, cols], y_pred[:, cols]
+        pmi, rmi, _, _ = precision_recall_fscore_support(yt, yp, average="micro", zero_division=0)
+        pma, rma, _, _ = precision_recall_fscore_support(yt, yp, average="macro", zero_division=0)
+        return pmi, rmi, pma, rma
+
+    sp_prec_micro, sp_rec_micro, sp_prec_macro, sp_rec_macro = _subset_pr(sp_cols)
+    nt_prec_micro, nt_rec_micro, nt_prec_macro, nt_rec_macro = _subset_pr(nt_cols)
+    print(
+        f"[VAL] SPECIES-only (target, n={len(sp_cols)})   macro P={sp_prec_macro:.4f}  R={sp_rec_macro:.4f}  |  micro P={sp_prec_micro:.4f}  R={sp_rec_micro:.4f}\n"
+        f"[VAL] non-target  (helpers, n={len(nt_cols)})   macro P={nt_prec_macro:.4f}  R={nt_rec_macro:.4f}",
+        flush=True,
+    )
+
     # Worst 10 by precision
     worst_p_idx = prec_cls.argsort()[:10]
     print("\n[VAL] Worst 10 classes by Precision:")
@@ -954,13 +984,21 @@ def train_linear_classifier(
                 # Header
                 writer.writerow(["type", "label", "precision", "recall"])
 
-                # Overall metrics
+                # Overall metrics (all classes, incl. non-target helpers)
                 writer.writerow(["overall_micro", "", f"{prec_micro:.6f}", f"{rec_micro:.6f}"])
                 writer.writerow(["overall_macro", "", f"{prec_macro:.6f}", f"{rec_macro:.6f}"])
 
-                # Species-level (per-class) metrics
+                # Headline objective: species-only (target species, excl. helpers)
+                writer.writerow(["species_micro", "", f"{sp_prec_micro:.6f}", f"{sp_rec_micro:.6f}"])
+                writer.writerow(["species_macro", "", f"{sp_prec_macro:.6f}", f"{sp_rec_macro:.6f}"])
+
+                # Non-target helpers (Environment_*/Homo sapiens_*) summarized separately
+                writer.writerow(["non_target_micro", "", f"{nt_prec_micro:.6f}", f"{nt_rec_micro:.6f}"])
+                writer.writerow(["non_target_macro", "", f"{nt_prec_macro:.6f}", f"{nt_rec_macro:.6f}"])
+
+                # Per-class metrics, each tagged species vs non_target
                 for i, (p, r) in enumerate(zip(prec_cls, rec_cls, strict=True)):
-                    writer.writerow(["species", lname(i), f"{p:.6f}", f"{r:.6f}"])
+                    writer.writerow([cls_types[i], lname(i), f"{p:.6f}", f"{r:.6f}"])
 
             print(f"[VAL] Metrics CSV written to: {metrics_path}", flush=True)
 
