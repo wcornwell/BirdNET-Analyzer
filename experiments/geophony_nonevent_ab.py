@@ -257,6 +257,7 @@ def main():
     p.add_argument("--limit", type=int, default=None, help="Max clips per class (smoke test).")
     p.add_argument("--force-extract", action="store_true", help="Re-extract even if cache exists.")
     p.add_argument("--save-models", action="store_true", help="Also save each arm as a deployable .tflite.")
+    p.add_argument("--save-heads", action="store_true", help="Save each arm's trained keras head (for OOD scoring).")
     args = p.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -328,6 +329,10 @@ def main():
         rows.append(row)
         print(f"  -> species AUPRC macro {row['species_aupr_macro']:.4f} | "
               f"leak@0.5 {row['nontarget_leak@0.5']:.4f} | leak@0.25 {row['nontarget_leak@0.25']:.4f}")
+
+        if args.save_heads:
+            clf.save(f"{arm_base}_head.keras")
+            print(f"  saved {arm_base}_head.keras")
 
         if args.save_models:
             try:
