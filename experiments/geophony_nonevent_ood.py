@@ -126,8 +126,14 @@ def main():
     top_hits = {arm: [] for arm in ARMS}  # (prob, file, start_s, species)
 
     t0 = time.time()
+    n_skipped = 0
     for fi, path in enumerate(files):
-        emb = embed_file(path, args.sample_rate, args.seconds_per_file, args.batch)
+        try:
+            emb = embed_file(path, args.sample_rate, args.seconds_per_file, args.batch)
+        except Exception as e:
+            n_skipped += 1
+            print(f"  [{fi + 1}/{len(files)}] {os.path.basename(path):<40s} SKIPPED ({type(e).__name__})")
+            continue
         nwin = len(emb)
         base_t = parse_start_seconds(path) or 0
         for arm, (head, sp_cols, valid) in arms.items():
@@ -153,6 +159,8 @@ def main():
                     top_hits[arm].append((float(wmax[w]), os.path.basename(path), float(start_s), valid[sp_cols[warg[w]]]))
         print(f"  [{fi + 1}/{len(files)}] {os.path.basename(path):<40s} {nwin:>5d} win  ({time.time() - t0:.0f}s)")
 
+    if n_skipped:
+        print(f"\n[WARN] skipped {n_skipped} unreadable file(s)")
     write_reports(out, agg, arms, top_hits, args)
 
 
