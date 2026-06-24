@@ -1,4 +1,4 @@
-from birdnet_analyzer import analyze
+from birdnet_analyzer.analyze.core import analyze
 from birdnet_analyzer.utils import runtime_error_handler
 
 
