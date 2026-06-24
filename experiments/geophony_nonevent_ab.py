@@ -72,7 +72,7 @@ HP = {
 # --------------------------------------------------------------------------- #
 def is_nontarget(name: str) -> bool:
     """Geophony / anthropophony helper class (mirrors model.py:_is_nontarget)."""
-    return name.startswith("Environment_") or name.startswith("Homo sapiens_")
+    return name.startswith(("Environment_", "Homo sapiens_"))
 
 
 def is_always_nonevent(name: str) -> bool:
@@ -361,10 +361,9 @@ def write_reports(output, rows, split_hash):
         f.write("| arm | species AUPRC (macro) | species AUPRC (micro) | "
                 "species P/R @0.5 | non-target leak @0.5 | non-target leak @0.25 |\n")
         f.write("|---|---|---|---|---|---|\n")
-        for r in rows:
-            f.write(f"| {r['arm']} | {r['species_aupr_macro']:.4f} | {r['species_aupr_micro']:.4f} | "
+        f.writelines(f"| {r['arm']} | {r['species_aupr_macro']:.4f} | {r['species_aupr_micro']:.4f} | "
                     f"{r['species_P@0.5']:.3f}/{r['species_R@0.5']:.3f} | "
-                    f"{r['nontarget_leak@0.5']:.4f} | {r['nontarget_leak@0.25']:.4f} |\n")
+                    f"{r['nontarget_leak@0.5']:.4f} | {r['nontarget_leak@0.25']:.4f} |\n" for r in rows)
         # Decision note
         base = next((r for r in rows if r["arm"] == "none"), rows[0])
         f.write("\n## Decision rule\n\n")

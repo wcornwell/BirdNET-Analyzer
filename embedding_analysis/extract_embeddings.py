@@ -8,19 +8,21 @@ Usage:
         --output embedding_analysis/results_name
 """
 
+import argparse
+import csv
 import os
 import sys
 import time
-import argparse
+
 import numpy as np
-import csv
 
 # --- Setup ---
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_DIR)
 
-import birdnet_analyzer.config as cfg
-from birdnet_analyzer import audio, model
+import birdnet_analyzer.config as cfg  # noqa: E402
+from birdnet_analyzer import audio, model  # noqa: E402
+
 
 def short_name(species_dir):
     """Extract common name from 'Genus species_Common Name' directory name."""
@@ -33,7 +35,7 @@ def main():
     parser.add_argument("--input", required=True, help="Path to directory containing species folders.")
     parser.add_argument("--output", required=True, help="Base name for output files (without extension).")
     parser.add_argument("--sample_rate", type=int, default=48000, help="Sample rate for audio files.")
-    
+
     args = parser.parse_args()
 
     # Configure BirdNET
@@ -44,7 +46,7 @@ def main():
 
     base_dir = args.input
     output_base = args.output
-    
+
     species_dirs = sorted([d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and not d.startswith(".")])
 
     print(f"Model: {args.model}")
@@ -72,7 +74,7 @@ def main():
                 emb = model.embeddings([sig_crop])
                 embs.append(emb[0])
                 fnames.append(fname)
-            except Exception as e:
+            except Exception:
                 total_clips_failed += 1
 
         n_emb = len(embs)
@@ -84,22 +86,22 @@ def main():
 
         elapsed = time.time() - start_time
         rate = total_clips_processed / elapsed if elapsed > 0 else 0
-        
+
         print(f"  [{sp_idx + 1}/{total_species}] {sname:.<45s} {n_emb:>4d} clips  (total: {total_clips_processed}, {rate:.1f} clips/s, elapsed: {elapsed:.0f}s)")
 
     elapsed_total = time.time() - start_time
-    print(f"\nEmbedding extraction complete!")
+    print("\nEmbedding extraction complete!")
     print(f"  Total clips embedded: {total_clips_processed}")
     print(f"  Failed: {total_clips_failed}")
     print(f"  Species with embeddings: {len(all_embeddings)}")
-    
+
     # Calculate centroids (mean)
     active_species = sorted(all_embeddings.keys())
     centroids = {sp: all_embeddings[sp].mean(axis=0) for sp in active_species}
-    
+
     # Save results to .npz for the next script
     npz_path = f"{output_base}_embeddings.npz"
-    # We save as a dict of arrays. Since all_filenames can't be easily saved in npz if lengths vary, 
+    # We save as a dict of arrays. Since all_filenames can't be easily saved in npz if lengths vary,
     # we'll save objects.
     save_dict = {
         "species_list": np.array(active_species),
@@ -108,7 +110,7 @@ def main():
         "model_path": np.array([args.model]),
         "input_dir": np.array([base_dir])
     }
-    
+
     # Add embeddings and centroids to the dict
     for sp in active_species:
         save_dict[f"emb_{sp}"] = all_embeddings[sp]
@@ -127,8 +129,8 @@ def main():
         header = ["species"] + [f"d{i}" for i in range(emb_dim)]
         writer.writerow(header)
         for sp in active_species:
-            writer.writerow([sp] + centroids[sp].tolist())
-    
+            writer.writerow([sp, *centroids[sp].tolist()])
+
     print(f"Saved centroid CSV: {csv_path}")
     print(f"Done! Total time: {elapsed_total:.1f}s")
 

@@ -917,7 +917,7 @@ def train_linear_classifier(
     # upstream and have no column here.) The project goal is species P/R, so we
     # report a species-only macro/micro alongside the all-class numbers.
     def _is_nontarget(name: str) -> bool:
-        return name.startswith("Environment_") or name.startswith("Homo sapiens_")
+        return name.startswith(("Environment_", "Homo sapiens_"))
 
     cls_types = ["non_target" if _is_nontarget(lname(i)) else "species" for i in range(len(prec_cls))]
     sp_cols = [i for i, t in enumerate(cls_types) if t == "species"]

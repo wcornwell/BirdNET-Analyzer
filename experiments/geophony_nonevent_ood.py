@@ -45,15 +45,6 @@ from experiments.geophony_nonevent_ab import ARMS, arm_labels, is_nontarget  # n
 THRESHOLDS = (0.25, 0.5)
 
 
-def parse_start_seconds(fname):
-    """POWERLINES_20260204_003202.wav -> seconds-into-day of the start time (or None)."""
-    try:
-        hhmmss = os.path.basename(fname).split("_")[2].split(".")[0]
-        return int(hhmmss[:2]) * 3600 + int(hhmmss[2:4]) * 60 + int(hhmmss[4:6])
-    except Exception:
-        return None
-
-
 def load_arms(base):
     """Return {arm: (head, species_cols, valid_labels)} from the in-sample run."""
     npz = f"{base}_embeddings_base.npz"
@@ -80,9 +71,7 @@ def embed_file(path, sample_rate, seconds_per_file, batch):
         path, sample_rate=sample_rate, duration=seconds_per_file if seconds_per_file else None
     )
     chunks = audio.split_signal(sig, rate, cfg.SIG_LENGTH, cfg.SIG_OVERLAP, cfg.SIG_MINLEN)
-    embs = []
-    for i in range(0, len(chunks), batch):
-        embs.append(model.embeddings(chunks[i : i + batch]))
+    embs = [model.embeddings(chunks[i : i + batch]) for i in range(0, len(chunks), batch)]
     return np.concatenate(embs) if embs else np.zeros((0, 1024), dtype="float32")
 
 
@@ -120,7 +109,7 @@ def main():
     print(f"\nScoring {len(files)} field file(s), {args.seconds_per_file or 'full'} s each\n")
 
     # Per-arm accumulators
-    agg = {arm: {"n_win": 0, "fired": {t: 0 for t in THRESHOLDS}, "dets": {t: 0 for t in THRESHOLDS},
+    agg = {arm: {"n_win": 0, "fired": dict.fromkeys(THRESHOLDS, 0), "dets": dict.fromkeys(THRESHOLDS, 0),
                  "sp_counts": np.zeros(len(arms[arm][1]), dtype=np.int64), "sum_max": 0.0}
            for arm in ARMS}
     top_hits = {arm: [] for arm in ARMS}  # (prob, file, start_s, species)
@@ -135,7 +124,6 @@ def main():
             print(f"  [{fi + 1}/{len(files)}] {os.path.basename(path):<40s} SKIPPED ({type(e).__name__})")
             continue
         nwin = len(emb)
-        base_t = parse_start_seconds(path) or 0
         for arm, (head, sp_cols, valid) in arms.items():
             probs = head.predict(emb, batch_size=512, verbose=0)
             sp = probs[:, sp_cols]
@@ -198,13 +186,12 @@ def write_reports(out, agg, arms, top_hits, args):
     md = f"{out}_summary.md"
     with open(md, "w") as f:
         f.write("# OOD field leak — geophony non-event arms (Powerline Strip)\n\n")
-        f.write(f"Unlabeled field audio; lower species fire-rate = better non-target rejection "
-                f"(but includes any real birds present). Baseline = `none`.\n\n")
+        f.write("Unlabeled field audio; lower species fire-rate = better non-target rejection "
+                "(but includes any real birds present). Baseline = `none`.\n\n")
         f.write("| arm | hours | fire-rate/hr @0.5 | dets/hr @0.5 | fire-rate/hr @0.25 | mean max-sp prob |\n")
         f.write("|---|---|---|---|---|---|\n")
-        for r in rows:
-            f.write(f"| {r['arm']} | {r['hours']} | {r['fire_rate_per_hr@0.5']} | {r['dets_per_hr@0.5']} | "
-                    f"{r['fire_rate_per_hr@0.25']} | {r['mean_max_sp_prob']} |\n")
+        f.writelines(f"| {r['arm']} | {r['hours']} | {r['fire_rate_per_hr@0.5']} | {r['dets_per_hr@0.5']} | "
+                    f"{r['fire_rate_per_hr@0.25']} | {r['mean_max_sp_prob']} |\n" for r in rows)
         f.write("\n## Δ vs baseline `none` (negative = fewer spurious species firings)\n\n")
         for r in rows:
             if r["arm"] == "none":

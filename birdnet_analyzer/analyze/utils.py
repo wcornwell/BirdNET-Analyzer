@@ -5,6 +5,7 @@ import json
 import operator
 import os
 from collections.abc import Sequence
+
 import numpy as np
 
 import birdnet_analyzer.config as cfg
@@ -200,9 +201,10 @@ def generate_parquet(timestamps: list[str], result: dict[str, list], afile_path:
     Returns:
         None
     """
-    from birdnet_analyzer.analyze import POSSIBLE_ADDITIONAL_COLUMNS_MAP
     import pyarrow as pa
     import pyarrow.parquet as pq
+
+    from birdnet_analyzer.analyze import POSSIBLE_ADDITIONAL_COLUMNS_MAP
 
     # standard fields for output
     fields = [
@@ -503,8 +505,8 @@ def combine_parquet_files(saved_results: list[str]):
         saved_results (list[str]): A list of file paths to the parquet files to be combined.
     """
     # create a pyarrow dataset from the list of filenames, then write to a single file
-    from pyarrow import dataset as ds
     import pyarrow.parquet as pq
+    from pyarrow import dataset as ds
 
     dataset = ds.dataset(saved_results, format="parquet")
     table = dataset.to_table()
