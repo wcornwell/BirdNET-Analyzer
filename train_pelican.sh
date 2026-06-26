@@ -3,16 +3,37 @@
 #
 # Usage:
 #   ./train_pelican.sh pelican0-10
-#   ./train_pelican.sh pelican0-10 --epochs 100   (pass extra flags after name)
+#   ./train_pelican.sh pelican0-10 --epochs 100        (pass extra flags after name)
+#   ./train_pelican.sh pelican0-10 --nonevent-helpers  (convert geophony/anthropophony
+#                                                        helpers to hard-negative non-events)
+#
+# --nonevent-helpers is a convenience preset that expands to:
+#     --non_event_prefixes "Environment_,Homo sapiens_" \
+#     --keep_as_class      "Homo sapiens_Airplane,Homo sapiens_Siren"
+# i.e. all Environment_*/Homo sapiens_* classes are trained as non-events (all-zero
+# hard negatives that protect species without an output neuron), EXCEPT the episodic
+# anthropophony you still want reported (Airplane, Siren). See CLAUDE.md "Design fork".
+# For other splits, pass --non_event_prefixes / --keep_as_class directly instead.
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <recognizer-name> [extra birdnet_analyzer.train flags]"
+    echo "Usage: $0 <recognizer-name> [--nonevent-helpers] [extra birdnet_analyzer.train flags]"
     exit 1
 fi
 
 NAME="$1"; shift
+
+# Expand the --nonevent-helpers preset; pass everything else straight through.
+EXTRA_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--nonevent-helpers" ]]; then
+        EXTRA_ARGS+=(--non_event_prefixes "Environment_,Homo sapiens_" \
+                     --keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren")
+    else
+        EXTRA_ARGS+=("$arg")
+    fi
+done
 
 TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
 OUTPUT_DIR="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers"
@@ -43,4 +64,4 @@ echo ""
     --focal-loss-alpha 0.25 \
     --focal-loss-gamma 3.0 \
     --epochs 50 \
-    "$@"
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

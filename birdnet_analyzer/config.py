@@ -160,6 +160,18 @@ SAMPLE_CROP_MODE: str = "center"
 # List of non-event classes
 NON_EVENT_CLASSES: list[str] = ["noise", "other", "background", "silence"]
 
+# Additional class-name prefixes whose folders are treated as non-events (all-zero
+# hard-negative label rows, like NON_EVENT_CLASSES) instead of positive, reportable
+# classes. Empty by default; set via --non_event_prefixes. Used to convert helper
+# classes (e.g. "Environment_", "Homo sapiens_") into hard negatives that protect
+# species without getting an output neuron.
+NON_EVENT_PREFIXES: list[str] = []
+
+# Exact class names that stay positive, reportable classes even when they match a
+# NON_EVENT_PREFIXES prefix. Set via --keep_as_class (e.g. episodic anthropophony
+# like "Homo sapiens_Airplane" you still want reported).
+NON_EVENT_KEEP_CLASSES: list[str] = []
+
 # Upsampling settings
 UPSAMPLING_RATIO: float = 0.0
 UPSAMPLING_MODE = "repeat"

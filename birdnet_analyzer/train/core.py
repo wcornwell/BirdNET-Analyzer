@@ -21,6 +21,8 @@ def train(
     mixup: bool = False,
     upsampling_ratio: float = 0.0,
     upsampling_mode: Literal["repeat", "mean", "smote"] = "repeat",
+    non_event_prefixes: str = "",
+    keep_as_class: str = "",
     model_format: Literal["tflite", "raven", "both"] = "tflite",
     model_save_mode: Literal["replace", "append"] = "replace",
     cache_mode: Literal["load", "save"] | None = None,
@@ -54,6 +56,8 @@ def train(
         mixup (bool, optional): Whether to use mixup data augmentation. Defaults to False.
         upsampling_ratio (float, optional): Ratio for upsampling underrepresented classes. Defaults to 0.0.
         upsampling_mode (Literal["repeat", "mean", "smote"], optional): Mode for upsampling. Defaults to "repeat".
+        non_event_prefixes (str, optional): Comma-separated class-name prefixes whose folders are trained as non-events (hard-negative rows). Defaults to "".
+        keep_as_class (str, optional): Comma-separated exact class names that stay positive classes even when they match a non_event_prefixes prefix. Defaults to "".
         model_format (Literal["tflite", "raven", "both"], optional): Format to save the trained model. Defaults to "tflite".
         model_save_mode (Literal["replace", "append"], optional): Save mode for the model. Defaults to "replace".
         cache_mode (Literal["load", "save"] | None, optional): Cache mode for training data. Defaults to None.
@@ -93,6 +97,8 @@ def train(
     cfg.TRAIN_WITH_MIXUP = mixup if mixup is not None else cfg.TRAIN_WITH_MIXUP
     cfg.UPSAMPLING_RATIO = upsampling_ratio
     cfg.UPSAMPLING_MODE = upsampling_mode
+    cfg.NON_EVENT_PREFIXES = [p.strip() for p in non_event_prefixes.split(",") if p.strip()]
+    cfg.NON_EVENT_KEEP_CLASSES = [c.strip() for c in keep_as_class.split(",") if c.strip()]
     cfg.TRAINED_MODEL_OUTPUT_FORMAT = model_format
     cfg.TRAINED_MODEL_SAVE_MODE = model_save_mode
     cfg.TRAIN_CACHE_MODE = cache_mode

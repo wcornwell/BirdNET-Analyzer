@@ -131,6 +131,19 @@ def _load_training_data(cache_mode=None, cache_file="", progress_callback=None):
     print(f"\t...train data path: {cfg.TRAIN_DATA_PATH}", flush=True)
     print(f"\t...test data path: {cfg.TEST_DATA_PATH}", flush=True)
 
+    def is_non_event(label: str) -> bool:
+        """True if a folder label is a hard-negative non-event (no output neuron).
+
+        Matches the built-in NON_EVENT_CLASSES (exact lowercase) plus any class whose
+        name starts with a configured NON_EVENT_PREFIXES prefix, unless it is listed in
+        NON_EVENT_KEEP_CLASSES (kept as a positive, reportable class).
+        """
+        if label.lower() in cfg.NON_EVENT_CLASSES:
+            return True
+        if label in cfg.NON_EVENT_KEEP_CLASSES:
+            return False
+        return any(label.startswith(p) for p in cfg.NON_EVENT_PREFIXES)
+
     # Get list of subfolders as labels
     train_folders = sorted(utils.list_subdirectories(cfg.TRAIN_DATA_PATH))
 
@@ -147,7 +160,7 @@ def _load_training_data(cache_mode=None, cache_file="", progress_callback=None):
     labels = sorted(labels)
 
     # Get valid labels
-    valid_labels = [label for label in labels if label.lower() not in cfg.NON_EVENT_CLASSES and not label.startswith("-")]
+    valid_labels = [label for label in labels if not is_non_event(label) and not label.startswith("-")]
 
     # Check if binary classification
     cfg.BINARY_CLASSIFICATION = len(valid_labels) == 1
@@ -197,7 +210,7 @@ def _load_training_data(cache_mode=None, cache_file="", progress_callback=None):
             folder_labels = folder.split(",")
 
             for label in folder_labels:
-                if label.lower() not in cfg.NON_EVENT_CLASSES and not label.startswith("-"):
+                if not is_non_event(label) and not label.startswith("-"):
                     label_vector[valid_labels.index(label)] = 1
                 elif label.startswith("-") and label[1:] in valid_labels:  # Negative labels need to be contained in the valid labels
                     label_vector[valid_labels.index(label[1:])] = -1
