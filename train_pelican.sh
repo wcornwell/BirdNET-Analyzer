@@ -8,31 +8,42 @@
 #                                                        helpers to hard-negative non-events)
 #
 # --nonevent-helpers is a convenience preset that expands to:
-#     --non_event_prefixes "Environment_,Homo sapiens_" \
-#     --keep_as_class      "Homo sapiens_Airplane,Homo sapiens_Siren"
-# i.e. all Environment_*/Homo sapiens_* classes are trained as non-events (all-zero
-# hard negatives that protect species without an output neuron), EXCEPT the episodic
-# anthropophony you still want reported (Airplane, Siren). See CLAUDE.md "Design fork".
+#     --non_event_prefixes "Environment_,Homo sapiens_"
+# i.e. ALL Environment_*/Homo sapiens_* classes are trained as non-events (all-zero
+# hard negatives that protect species without an output neuron, never reported), with
+# no exceptions. See CLAUDE.md "Design fork".
+#
+# Add --keep-airplane-siren to keep the episodic anthropophony you still want reported
+# (Airplane, Siren) as positive classes:
+#   ./train_pelican.sh pelican0-10 --nonevent-helpers --keep-airplane-siren
+# expands the keep-list to:  --keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren"
+#
 # For other splits, pass --non_event_prefixes / --keep_as_class directly instead.
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <recognizer-name> [--nonevent-helpers] [extra birdnet_analyzer.train flags]"
+    echo "Usage: $0 <recognizer-name> [--nonevent-helpers] [--keep-airplane-siren] [extra birdnet_analyzer.train flags]"
     exit 1
 fi
 
 NAME="$1"; shift
 
-# Expand the --nonevent-helpers preset; pass everything else straight through.
+# Expand the --nonevent-helpers / --keep-airplane-siren presets; pass everything
+# else straight through.
 EXTRA_ARGS=()
 for arg in "$@"; do
-    if [[ "$arg" == "--nonevent-helpers" ]]; then
-        EXTRA_ARGS+=(--non_event_prefixes "Environment_,Homo sapiens_" \
-                     --keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren")
-    else
-        EXTRA_ARGS+=("$arg")
-    fi
+    case "$arg" in
+        --nonevent-helpers)
+            EXTRA_ARGS+=(--non_event_prefixes "Environment_,Homo sapiens_")
+            ;;
+        --keep-airplane-siren)
+            EXTRA_ARGS+=(--keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren")
+            ;;
+        *)
+            EXTRA_ARGS+=("$arg")
+            ;;
+    esac
 done
 
 TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
