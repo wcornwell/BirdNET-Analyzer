@@ -1,0 +1,325 @@
+custom_class,ebird_code,global_label,status
+Acanthagenys rufogularis_Spiny-cheeked Honeyeater,spchon1,Acanthagenys rufogularis_Spiny-cheeked Honeyeater,same_label
+Acanthiza apicalis_Inland Thornbill,inltho1,Acanthiza apicalis_Inland Thornbill,same_label
+Acanthiza chrysorrhoa_Yellow-rumped Thornbill,yertho1,Acanthiza chrysorrhoa_Yellow-rumped Thornbill,same_label
+Acanthiza lineata_Striated Thornbill,strtho1,Acanthiza lineata_Striated Thornbill,same_label
+Acanthiza nana_Yellow Thornbill,yeltho1,Acanthiza nana_Yellow Thornbill,same_label
+Acanthiza pusilla_Brown Thornbill,brotho1,Acanthiza pusilla_Brown Thornbill,same_label
+Acanthiza reguloides_Buff-rumped Thornbill,burtho1,Acanthiza reguloides_Buff-rumped Thornbill,same_label
+Acanthiza uropygialis_Chestnut-rumped Thornbill,chrtho1,Acanthiza uropygialis_Chestnut-rumped Thornbill,same_label
+Acanthorhynchus tenuirostris_Eastern Spinebill,easspi1,Acanthorhynchus tenuirostris_Eastern Spinebill,same_label
+Acridotheres tristis_Common Myna,commyn,Acridotheres tristis_Common Myna,same_label
+Acrocephalus australis_Australian Reed Warbler,aurwar1,Acrocephalus australis_Australian Reed Warbler,same_label
+Actitis hypoleucos_Common Sandpiper,comsan,Actitis hypoleucos_Common Sandpiper,same_label
+Aegotheles cristatus_Australian Owlet Nightjar,auonig1,Aegotheles cristatus_Australian Owlet-nightjar,renamed_since_global
+Ailuroedus crassirostris_Green Catbird,grecat1,Ailuroedus crassirostris_Green Catbird,same_label
+Alauda arvensis_Eurasian Skylark,skylar,Alauda arvensis_Eurasian Skylark,same_label
+Alisterus scapularis_Australian King-Parrot,aukpar1,Alisterus scapularis_Australian King-Parrot,same_label
+Amytornis barbatus_Grey Grasswren,grygra1,,not_in_global_model
+Amytornis goyderi_Eyrean Grasswren,eyrgra1,,not_in_global_model
+Amytornis modestus_Thick-billed Grasswren,thbgra4,,not_in_global_model
+Anarhynchus ruficapillus_Red-capped Plover,recplo1,,not_in_global_model
+Anas castanea_Chestnut Teal,chetea1,Anas castanea_Chestnut Teal,same_label
+Anas gracilis_Grey Teal,gretea1,Anas gracilis_Gray Teal,renamed_since_global
+Anas superciliosa_Pacific Black Duck,pabduc1,Anas superciliosa_Pacific Black Duck,same_label
+Anhinga novaehollandiae_Australasian Darter,darter4,Anhinga novaehollandiae_Australasian Darter,same_label
+Anthochaera carunculata_Red Wattlebird,redwat1,Anthochaera carunculata_Red Wattlebird,same_label
+Anthochaera chrysoptera_Little Wattlebird,bruwat1,Anthochaera chrysoptera_Little Wattlebird,same_label
+Anthochaera phrygia_Regent Honeyeater,reghon1,Anthochaera phrygia_Regent Honeyeater,same_label
+Anthus novaeseelandiae_Australian Pipit,auspip3,Anthus novaeseelandiae_Australasian Pipit,renamed_since_global
+Antigone rubicunda_Brolga,brolga1,Antigone rubicunda_Brolga,same_label
+Aphelocephala leucopsis_Southern Whiteface,souwhi1,Aphelocephala leucopsis_Southern Whiteface,same_label
+Aphelocephala nigricincta_Banded Whiteface,banwhi1,,not_in_global_model
+Aprosmictus erythropterus_Red-winged Parrot,rewpar1,Aprosmictus erythropterus_Red-winged Parrot,same_label
+Aquila audax_Wedge-tailed Eagle,weteag1,,not_in_global_model
+Ardea alba_Great Egret,greegr,Ardea alba_Great Egret,same_label
+Ardea coromanda_Eastern Cattle Egret,categr2,,not_in_global_model
+Ardea pacifica_White-necked Heron,pacher1,,not_in_global_model
+Ardea plumifera_Plumed Egret,integr2,,not_in_global_model
+Ardeotis australis_Australian Bustard,ausbus1,,not_in_global_model
+Artamus cinereus_Black-faced Woodswallow,blfwoo1,Artamus cinereus_Black-faced Woodswallow,same_label
+Artamus cyanopterus_Dusky Woodswallow,duswoo1,Artamus cyanopterus_Dusky Woodswallow,same_label
+Artamus leucorynchus_White-breasted Woodswallow,whbwoo4,Artamus leucorynchus_White-breasted Woodswallow,same_label
+Artamus minor_Little Woodswallow,litwoo4,,not_in_global_model
+Artamus personatus_Masked Woodswallow,maswoo1,Artamus personatus_Masked Woodswallow,same_label
+Artamus superciliosus_White-browed Woodswallow,whbwoo5,Artamus superciliosus_White-browed Woodswallow,same_label
+Aviceda subcristata_Pacific Baza,pacbaz1,Aviceda subcristata_Pacific Baza,same_label
+Aythya australis_Hardhead,wheduc1,,not_in_global_model
+Barnardius zonarius_Australian Ringneck,polpar1,Barnardius zonarius_Australian Ringneck,same_label
+Biziura lobata_Musk Duck,musduc1,Biziura lobata_Musk Duck,same_label
+Burhinus grallarius_Bush Thick-knee,butkne1,Burhinus grallarius_Bush Thick-knee,same_label
+Cacatua galerita_Sulphur-crested Cockatoo,succoc,Cacatua galerita_Sulphur-crested Cockatoo,same_label
+Cacatua leadbeateri_Pink Cockatoo,pincoc1,Lophochroa leadbeateri_Pink Cockatoo,renamed_since_global
+Cacatua sanguinea_Little Corella,litcor2,Cacatua sanguinea_Little Corella,same_label
+Cacatua tenuirostris_Long-billed Corella,lobcor1,Cacatua tenuirostris_Long-billed Corella,same_label
+Cacomantis flabelliformis_Fan-tailed Cuckoo,fatcuc1,Cacomantis flabelliformis_Fan-tailed Cuckoo,same_label
+Cacomantis variolosus_Sahul Brush Cuckoo,brucuc3,Cacomantis variolosus_Brush Cuckoo,renamed_since_global
+Calamanthus campestris_Rufous Fieldwren,ruffie2,,not_in_global_model
+Calidris acuminata_Sharp-tailed Sandpiper,shtsan,Calidris acuminata_Sharp-tailed Sandpiper,same_label
+Calidris ferruginea_Curlew Sandpiper,cursan,Calidris ferruginea_Curlew Sandpiper,same_label
+Caligavis chrysops_Yellow-faced Honeyeater,yefhon1,Caligavis chrysops_Yellow-faced Honeyeater,same_label
+Callocephalon fimbriatum_Gang-gang Cockatoo,gagcoc1,Callocephalon fimbriatum_Gang-gang Cockatoo,same_label
+Calyptorhynchus banksii_Red-tailed Black-Cockatoo,rtbcoc1,Calyptorhynchus banksii_Red-tailed Black-Cockatoo,same_label
+Calyptorhynchus funereus_Yellow-tailed Black-Cockatoo,ytbcoc1,Calyptorhynchus funereus_Yellow-tailed Black-Cockatoo,same_label
+Calyptorhynchus lathami_Glossy Black-Cockatoo,glbcoc1,Calyptorhynchus lathami_Glossy Black-Cockatoo,same_label
+Carduelis carduelis_European Goldfinch,eurgol,Carduelis carduelis_European Goldfinch,same_label
+Centropus phasianinus_Pheasant Coucal,phecou2,Centropus phasianinus_Pheasant Coucal,same_label
+Certhionyx variegatus_Pied Honeyeater,piehon1,Certhionyx variegatus_Pied Honeyeater,same_label
+Ceyx azureus_Azure Kingfisher,azukin1,Ceyx azureus_Azure Kingfisher,same_label
+Chalcites basalis_Horsfield's Bronze-Cuckoo,hobcuc1,Chrysococcyx basalis_Horsfield's Bronze-Cuckoo,renamed_since_global
+Chalcites lucidus_Shining Bronze-Cuckoo,shbcuc1,Chrysococcyx lucidus_Shining Bronze-Cuckoo,renamed_since_global
+Chalcites osculans_Black-eared Cuckoo,blecuc1,Chrysococcyx osculans_Black-eared Cuckoo,renamed_since_global
+Chalcophaps longirostris_Pacific Emerald Dove,emedov3,Chalcophaps longirostris_Pacific Emerald Dove,same_label
+Chenonetta jubata_Australian Wood Duck,manduc1,Chenonetta jubata_Maned Duck,renamed_since_global
+Cheramoeca leucosterna_White-backed Swallow,whbswa3,,not_in_global_model
+Chlidonias hybrida_Whiskered Tern,whiter2,Chlidonias hybrida_Whiskered Tern,same_label
+Chroicocephalus novaehollandiae_Silver Gull,silgul2,Chroicocephalus novaehollandiae_Silver Gull,same_label
+Cincloramphus cruralis_Brown Songlark,broson1,Cincloramphus cruralis_Brown Songlark,same_label
+Cincloramphus mathewsi_Rufous Songlark,rufson1,Cincloramphus mathewsi_Rufous Songlark,same_label
+Cinclosoma cinnamomeum_Cinnamon Quail-thrush,ciqthr1,,not_in_global_model
+Cinclosoma punctatum_Spotted Quail-thrush,spqthr1,Cinclosoma punctatum_Spotted Quail-thrush,same_label
+Circus approximans_Swamp Harrier,swahar1,Circus approximans_Swamp Harrier,same_label
+Cisticola exilis_Golden-headed Cisticola,gohcis1,Cisticola exilis_Golden-headed Cisticola,same_label
+Climacteris erythrops_Red-browed Treecreeper,rebtre1,,not_in_global_model
+Climacteris picumnus_Brown Treecreeper,brotre2,Climacteris picumnus_Brown Treecreeper,same_label
+Colluricincla harmonica_Grey Shrikethrush,grysht1,Colluricincla harmonica_Gray Shrikethrush,renamed_since_global
+Colluricincla megarhyncha_Little Shrikethrush,litshr31,,not_in_global_model
+Columba leucomela_White-headed Pigeon,whhpig1,,not_in_global_model
+Columba livia_Rock Dove,rocpig,Columba livia_Rock Pigeon,renamed_since_global
+Coracina maxima_Ground Cuckooshrike,grocus1,,not_in_global_model
+Coracina novaehollandiae_Black-faced Cuckooshrike,bkfcus1,Coracina novaehollandiae_Black-faced Cuckooshrike,same_label
+Coracina papuensis_White-bellied Cuckooshrike,whbcus1,Coracina papuensis_White-bellied Cuckooshrike,same_label
+Corcorax melanorhamphos_White-winged Chough,whwcho1,Corcorax melanorhamphos_White-winged Chough,same_label
+Cormobates leucophaea_White-throated Treecreeper,whttre3,Cormobates leucophaea_White-throated Treecreeper,same_label
+Corvus bennetti_Little Crow,litcro1,,not_in_global_model
+Corvus coronoides_Australian Raven,ausrav1,Corvus coronoides_Australian Raven,same_label
+Corvus mellori_Little Raven,litrav1,Corvus mellori_Little Raven,same_label
+Corvus orru_Torresian Crow,torcro2,Corvus orru_Torresian Crow,same_label
+Corvus tasmanicus_Forest Raven,forrav1,Corvus tasmanicus_Forest Raven,same_label
+Coturnix pectoralis_Stubble Quail,stuqua1,Coturnix pectoralis_Stubble Quail,same_label
+Cracticus nigrogularis_Pied Butcherbird,piebut1,Cracticus nigrogularis_Pied Butcherbird,same_label
+Cracticus torquatus_Grey Butcherbird,grybut1,Cracticus torquatus_Gray Butcherbird,renamed_since_global
+Cygnus atratus_Black Swan,blkswa,Cygnus atratus_Black Swan,same_label
+Dacelo novaeguineae_Laughing Kookaburra,laukoo1,Dacelo novaeguineae_Laughing Kookaburra,same_label
+Daphoenositta chrysoptera_Varied Sittella,varsit8,Daphoenositta chrysoptera_Varied Sittella,same_label
+Dasyornis brachypterus_Eastern Bristlebird,easbri1,Dasyornis brachypterus_Eastern Bristlebird,same_label
+Dendrocygna eytoni_Plumed Whistling Duck,plwduc1,Dendrocygna eytoni_Plumed Whistling-Duck,renamed_since_global
+Dicaeum hirundinaceum_Mistletoebird,mistle1,Dicaeum hirundinaceum_Mistletoebird,same_label
+Dicrurus bracteatus_Spangled Drongo,spadro1,Dicrurus bracteatus_Spangled Drongo,same_label
+Dromaius novaehollandiae_Emu,emu1,,not_in_global_model
+Drymodes brunneopygia_Southern Scrub-Robin,sosrob1,Drymodes brunneopygia_Southern Scrub-Robin,same_label
+Edolisoma tenuirostre_Sahul Cicadabird,cicada1,Edolisoma tenuirostre_Common Cicadabird,renamed_since_global
+Egretta garzetta_Little Egret,litegr,Egretta garzetta_Little Egret,same_label
+Egretta novaehollandiae_White-faced Heron,whfher1,Egretta novaehollandiae_White-faced Heron,same_label
+Elanus axillaris_Black-shouldered Kite,auskit1,,not_in_global_model
+Elanus scriptus_Letter-winged Kite,lewkit1,,not_in_global_model
+Emblema pictum_Painted Finch,paifir1,,not_in_global_model
+Entomyzon cyanotis_Blue-faced Honeyeater,blfhon1,Entomyzon cyanotis_Blue-faced Honeyeater,same_label
+Eolophus roseicapilla_Galah,galah,Eolophus roseicapilla_Galah,same_label
+Eopsaltria australis_Eastern Yellow Robin,yelrob1,Eopsaltria australis_Eastern Yellow Robin,same_label
+Epthianura albifrons_White-fronted Chat,whfcha1,,not_in_global_model
+Epthianura aurifrons_Orange Chat,oracha1,,not_in_global_model
+Epthianura crocea_Yellow Chat,yelcha1,,not_in_global_model
+Epthianura tricolor_Crimson Chat,cricha1,Epthianura tricolor_Crimson Chat,same_label
+Erythrogonys cinctus_Red-kneed Dotterel,rekdot1,,not_in_global_model
+Eudynamys orientalis_Pacific Koel,asikoe3,Eudynamys orientalis_Pacific Koel,same_label
+Eurostopodus argus_Spotted Nightjar,sponig1,Eurostopodus argus_Spotted Nightjar,same_label
+Eurostopodus mystacalis_White-throated Nightjar,whtnig3,Eurostopodus mystacalis_White-throated Nightjar,same_label
+Eurystomus orientalis_Dollarbird,dollar1,Eurystomus orientalis_Dollarbird,same_label
+Falco berigora_Brown Falcon,brofal1,Falco berigora_Brown Falcon,same_label
+Falco cenchroides_Nankeen Kestrel,auskes1,,not_in_global_model
+Falco longipennis_Australian Hobby,aushob1,,not_in_global_model
+Falco peregrinus_Peregrine Falcon,perfal,Falco peregrinus_Peregrine Falcon,same_label
+Falco subniger_Black Falcon,blafal1,,not_in_global_model
+Falcunculus frontatus_Eastern Shrike-tit,cresht1,Falcunculus frontatus_Crested Shrike-tit,renamed_since_global
+Fulica atra_Eurasian Coot,eurcoo,Fulica atra_Eurasian Coot,same_label
+Gallinago hardwickii_Latham's Snipe,latsni1,Gallinago hardwickii_Latham's Snipe,same_label
+Gallinula tenebrosa_Dusky Moorhen,dusmoo1,Gallinula tenebrosa_Dusky Moorhen,same_label
+Gallirallus philippensis_Buff-banded Rail,bubrai1,Gallirallus philippensis_Buff-banded Rail,same_label
+Gavicalis virescens_Singing Honeyeater,sinhon1,Gavicalis virescens_Singing Honeyeater,same_label
+Gelochelidon macrotarsa_Australian Tern,gubter3,,not_in_global_model
+Geopelia cuneata_Diamond Dove,diadov1,,not_in_global_model
+Geopelia humeralis_Bar-shouldered Dove,basdov1,Geopelia humeralis_Bar-shouldered Dove,same_label
+Geopelia placida_Peaceful Dove,peadov1,Geopelia placida_Peaceful Dove,same_label
+Gerygone fusca_Western Gerygone,wesger1,Gerygone fusca_Western Gerygone,same_label
+Gerygone mouki_Brown Gerygone,broger1,Gerygone mouki_Brown Gerygone,same_label
+Gerygone olivacea_White-throated Gerygone,whtger1,Gerygone olivacea_White-throated Gerygone,same_label
+Glareola isabella_Australian Pratincole,auspra1,,not_in_global_model
+Glossopsitta concinna_Musk Lorikeet,muslor1,Glossopsitta concinna_Musk Lorikeet,same_label
+Grallina cyanoleuca_Magpie-lark,maglar1,Grallina cyanoleuca_Magpie-lark,same_label
+Grantiella picta_Painted Honeyeater,paihon1,Grantiella picta_Painted Honeyeater,same_label
+Gymnorhina tibicen_Australian Magpie,ausmag2,Gymnorhina tibicen_Australian Magpie,same_label
+Haliastur sphenurus_Whistling Kite,whikit1,Haliastur sphenurus_Whistling Kite,same_label
+Heteroscenes pallidus_Pallid Cuckoo,palcuc1,Cacomantis pallidus_Pallid Cuckoo,renamed_since_global
+Hieraaetus morphnoides_Little Eagle,liteag1,,not_in_global_model
+Himantopus leucocephalus_Pied Stilt,piesti1,Himantopus leucocephalus_Pied Stilt,same_label
+Hirundapus caudacutus_White-throated Needletail,whtnee,Hirundapus caudacutus_White-throated Needletail,same_label
+Hirundo neoxena_Welcome Swallow,welswa1,Hirundo neoxena_Welcome Swallow,same_label
+Hydroprogne caspia_Caspian Tern,caster1,Hydroprogne caspia_Caspian Tern,same_label
+Hylacola pyrrhopygia_Chestnut-rumped Heathwren,chrhea1,,not_in_global_model
+Icthyophaga leucogaster_White-bellied Sea Eagle,wbseag1,Haliaeetus leucogaster_White-bellied Sea-Eagle,renamed_since_global
+Lalage tricolor_White-winged Triller,whwtri1,Lalage tricolor_White-winged Triller,same_label
+Lathamus discolor_Swift Parrot,swipar1,Lathamus discolor_Swift Parrot,same_label
+Leucosarcia melanoleuca_Wonga Pigeon,wonpig1,Leucosarcia melanoleuca_Wonga Pigeon,same_label
+Lewinia pectoralis_Lewin's Rail,lewrai1,Lewinia pectoralis_Lewin's Rail,same_label
+Lichenostomus melanops_Yellow-tufted Honeyeater,yethon3,Lichenostomus melanops_Yellow-tufted Honeyeater,same_label
+Lichmera indistincta_Brown Honeyeater,brohon1,Lichmera indistincta_Brown Honeyeater,same_label
+Lophoictinia isura_Square-tailed Kite,sqtkit1,,not_in_global_model
+Macropygia phasianella_Brown Cuckoo-Dove,brcdov1,Macropygia phasianella_Brown Cuckoo-Dove,same_label
+Malacorhynchus membranaceus_Pink-eared Duck,pieduc1,Malacorhynchus membranaceus_Pink-eared Duck,same_label
+Malurus assimilis_Purple-backed Fairywren,varfai1,Malurus assimilis_Purple-backed Fairywren,same_label
+Malurus cyaneus_Superb Fairywren,supfai1,Malurus cyaneus_Superb Fairywren,same_label
+Malurus lamberti_Variegated Fairywren,varfai5,Malurus lamberti_Variegated Fairywren,same_label
+Malurus leucopterus_White-winged Fairywren,whwfai1,Malurus leucopterus_White-winged Fairywren,same_label
+Malurus splendens_Spendid Fairywren,splfai1,Malurus splendens_Splendid Fairywren,renamed_since_global
+Manorina flavigula_Yellow-throated Miner,yetmin1,Manorina flavigula_Yellow-throated Miner,same_label
+Manorina melanocephala_Noisy Miner,noimin1,Manorina melanocephala_Noisy Miner,same_label
+Manorina melanophrys_Bell Miner,belmin1,Manorina melanophrys_Bell Miner,same_label
+Megaloprepia magnifica_Wompoo Fruit-Dove,wofdov1,Ptilinopus magnificus_Wompoo Fruit-Dove,renamed_since_global
+Melanodryas cucullata_Hooded Robin,hoorob1,Melanodryas cucullata_Hooded Robin,same_label
+Meliphaga lewinii_Lewin's Honeyeater,lewhon1,Meliphaga lewinii_Lewin's Honeyeater,same_label
+Melithreptus brevirostris_Brown-headed Honeyeater,brhhon1,Melithreptus brevirostris_Brown-headed Honeyeater,same_label
+Melithreptus gularis_Black-chinned Honeyeater,blchon2,Melithreptus gularis_Black-chinned Honeyeater,same_label
+Melithreptus lunatus_White-naped Honeyeater,whnhon2,Melithreptus lunatus_White-naped Honeyeater,same_label
+Melopsittacus undulatus_Budgerigar,budger,Melopsittacus undulatus_Budgerigar,same_label
+Menura alberti_Albert's Lyrebird,alblyr1,Menura alberti_Albert's Lyrebird,same_label
+Menura novaehollandiae_Superb Lyrebird,suplyr1,Menura novaehollandiae_Superb Lyrebird,same_label
+Merops ornatus_Rainbow Bee-eater,rabeat1,Merops ornatus_Rainbow Bee-eater,same_label
+Microcarbo melanoleucos_Little Pied Cormorant,lipcor1,,not_in_global_model
+Microeca fascinans_Jacky Winter,jacwin1,Microeca fascinans_Jacky-winter,renamed_since_global
+Milvus migrans_Black Kite,blakit1,Milvus migrans_Black Kite,same_label
+Mirafra javanica_Singing Bushlark,sinbus6,,not_in_global_model
+Monarcha melanopsis_Black-faced Monarch,blfmon1,Monarcha melanopsis_Black-faced Monarch,same_label
+Myiagra cyanoleuca_Satin Flycatcher,satfly1,Myiagra cyanoleuca_Satin Flycatcher,same_label
+Myiagra inquieta_Restless Flycatcher,resfly1,Myiagra inquieta_Restless Flycatcher,same_label
+Myiagra rubecula_Leaden Flycatcher,leafly2,Myiagra rubecula_Leaden Flycatcher,same_label
+Myzomela sanguinolenta_Scarlet Honeyeater,scamyz1,Myzomela sanguinolenta_Scarlet Myzomela,renamed_since_global
+Neochmia temporalis_Red-browed Finch,rebfir1,Neochmia temporalis_Red-browed Firetail,renamed_since_global
+Neophema chrysostoma_Blue-winged Parrot,blwpar3,,not_in_global_model
+Neophema pulchella_Turquoise Parrot,turpar1,Neophema pulchella_Turquoise Parrot,same_label
+Neopsephotus bourkii_Bourke's Parrot,boupar2,,not_in_global_model
+Neosericornis citreogularis_Yellow-throated Scrubwren,yetscr1,Sericornis citreogularis_Yellow-throated Scrubwren,renamed_since_global
+Nesoptilotis leucotis_White-eared Honeyeater,whehon1,Nesoptilotis leucotis_White-eared Honeyeater,same_label
+Ninox boobook_Australian Boobook,souboo8,Ninox boobook_Southern Boobook,renamed_since_global
+Ninox connivens_Barking Owl,barowl1,Ninox connivens_Barking Owl,same_label
+Ninox strenua_Powerful Owl,powowl1,Ninox strenua_Powerful Owl,same_label
+Northiella haematogaster_Greater Bluebonnet,bluebo1,Northiella haematogaster_Greater Bluebonnet,same_label
+Numenius minutus_Little Curlew,litcur,Numenius minutus_Little Curlew,same_label
+Nycticorax caledonicus_Nankeen Night Heron,runher1,,not_in_global_model
+Nymphicus hollandicus_Cockatiel,cockat,Nymphicus hollandicus_Cockatiel,same_label
+Ocyphaps lophotes_Crested Pigeon,crepig1,Ocyphaps lophotes_Crested Pigeon,same_label
+Oreoica gutturalis_Crested Bellbird,crebel1,Oreoica gutturalis_Crested Bellbird,same_label
+Origma solitaria_Rockwarbler,rocwar1,,not_in_global_model
+Oriolus sagittatus_Olive-backed Oriole,olbori1,Oriolus sagittatus_Olive-backed Oriole,same_label
+Orthonyx temminckii_Australian Logrunner,soulog1,Orthonyx temminckii_Australian Logrunner,same_label
+Pachycephala inornata_Gilberts Whistler,gilwhi1,Pachycephala inornata_Gilbert's Whistler,renamed_since_global
+Pachycephala pectoralis_Golden Whistler,y01193,Pachycephala pectoralis_Golden Whistler,same_label
+Pachycephala rufiventris_Rufous Whistler,rufwhi1,Pachycephala rufiventris_Rufous Whistler,same_label
+Pandion haliaetus_Osprey,osprey,Pandion haliaetus_Osprey,same_label
+Pardalotus punctatus_Spotted Pardalote,spopar1,Pardalotus punctatus_Spotted Pardalote,same_label
+Pardalotus rubricatus_Red-browed Pardalote,rebpar6,Pardalotus rubricatus_Red-browed Pardalote,same_label
+Pardalotus striatus_Striated Pardalote,strpar1,Pardalotus striatus_Striated Pardalote,same_label
+Parvipsitta pusilla_Little Lorikeet,litlor1,Parvipsitta pusilla_Little Lorikeet,same_label
+Passer domesticus_House Sparrow,houspa,Passer domesticus_House Sparrow,same_label
+Pedionomus torquatus_Plains Wanderer,plawan1,,not_in_global_model
+Pelecanus conspicillatus_Australian Pelican,auspel1,Pelecanus conspicillatus_Australian Pelican,same_label
+Peltohyas australis_Inland Dotterel,inldot2,,not_in_global_model
+Petrochelidon ariel_Fairy Martin,faimar2,Petrochelidon ariel_Fairy Martin,same_label
+Petrochelidon nigricans_Tree Martin,tremar2,Petrochelidon nigricans_Tree Martin,same_label
+Petroica boodang_Scarlet Robin,scarob2,Petroica boodang_Scarlet Robin,same_label
+Petroica goodenovii_Red-capped Robin,recrob1,Petroica goodenovii_Red-capped Robin,same_label
+Petroica phoenicea_Flame Robin,flarob1,Petroica phoenicea_Flame Robin,same_label
+Petroica rosea_Rose Robin,rosrob1,Petroica rosea_Rose Robin,same_label
+Pezoporus wallicus_Ground Parrot,gropar1,Pezoporus wallicus_Ground Parrot,same_label
+Phalacrocorax carbo_Great Cormorant,grecor,Phalacrocorax carbo_Great Cormorant,same_label
+Phalacrocorax sulcirostris_Little Black Cormorant,libcor1,,not_in_global_model
+Phalacrocorax varius_Pied Cormorant,piecor1,,not_in_global_model
+Phaps chalcoptera_Common Bronzewing,combro1,Phaps chalcoptera_Common Bronzewing,same_label
+Phaps elegans_Brush Bronzewing,brubro1,Phaps elegans_Brush Bronzewing,same_label
+Phaps histrionica_Flock Bronzewing,flobro1,,not_in_global_model
+Philemon citreogularis_Little Friarbird,litfri1,Philemon citreogularis_Little Friarbird,same_label
+Philemon corniculatus_Noisy Friarbird,noifri1,Philemon corniculatus_Noisy Friarbird,same_label
+Phylidonyris niger_White-cheeked Honeyeater,whchon2,Phylidonyris niger_White-cheeked Honeyeater,same_label
+Phylidonyris novaehollandiae_New Holland Honeyeater,nehhon2,Phylidonyris novaehollandiae_New Holland Honeyeater,same_label
+Pitta versicolor_Noisy Pitta,noipit1,Pitta versicolor_Noisy Pitta,same_label
+Platalea flavipes_Yellow-billed Spoonbill,yebspo1,,not_in_global_model
+Platalea regia_Royal Spoonbill,royspo1,,not_in_global_model
+Platycercus elegans_Crimson Rosella,criros2,Platycercus elegans_Crimson Rosella,same_label
+Platycercus eximius_Eastern Rosella,easros1,Platycercus eximius_Eastern Rosella,same_label
+Plectorhyncha lanceolata_Striped Honeyeater,strhon1,Plectorhyncha lanceolata_Striped Honeyeater,same_label
+Plegadis falcinellus_Glossy Ibis,gloibi,Plegadis falcinellus_Glossy Ibis,same_label
+Podargus strigoides_Tawny Frogmouth,tawfro1,Podargus strigoides_Tawny Frogmouth,same_label
+Podiceps cristatus_Great Crested Grebe,grcgre1,Podiceps cristatus_Great Crested Grebe,same_label
+Poliocephalus poliocephalus_Hoary-headed Grebe,hohgre1,,not_in_global_model
+Polytelis swainsonii_Superb Parrot,suppar1,Polytelis swainsonii_Superb Parrot,same_label
+Pomatostomus ruficeps_Chestnut-crowned Babbler,chcbab2,Pomatostomus ruficeps_Chestnut-crowned Babbler,same_label
+Pomatostomus superciliosus_White-browed Babbler,whbbab3,Pomatostomus superciliosus_White-browed Babbler,same_label
+Pomatostomus temporalis_Grey-crowned Babbler,gycbab1,Pomatostomus temporalis_Gray-crowned Babbler,renamed_since_global
+Poodytes gramineus_Little Grassbird,litgra1,Poodytes gramineus_Little Grassbird,same_label
+Porphyrio melanotus_Australasian Swamphen,purswa6,Porphyrio melanotus_Australasian Swamphen,same_label
+Porzana fluminea_Australian Spotted Crake,auscra1,,not_in_global_model
+Psephotellus varius_Mulga Parrot,mulpar1,Psephotus varius_Mulga Parrot,renamed_since_global
+Psephotus haematonotus_Red-rumped Parrot,rerpar1,Psephotus haematonotus_Red-rumped Parrot,same_label
+Psophodes cristatus_Chirruping Wedgebill,chiwed2,Psophodes cristatus_Chirruping Wedgebill,same_label
+Psophodes olivaceus_Eastern Whipbird,easwhi1,Psophodes olivaceus_Eastern Whipbird,same_label
+Ptilinopus regina_Rose-crowned Fruit-Dove,rcfdov1,Ptilinopus regina_Rose-crowned Fruit-Dove,same_label
+Ptilonorhynchus violaceus_Satin Bowerbird,satbow1,Ptilonorhynchus violaceus_Satin Bowerbird,same_label
+Ptilotula fusca_Fuscous Honeyeater,fushon1,Ptilotula fusca_Fuscous Honeyeater,same_label
+Ptilotula ornata_Yellow-plumed Honeyeater,yephon1,Ptilotula ornata_Yellow-plumed Honeyeater,same_label
+Ptilotula penicillata_White-plumed Honeyeater,whphon1,Ptilotula penicillata_White-plumed Honeyeater,same_label
+Ptilotula plumula_Grey-fronted Honeyeater,gyfhon1,,not_in_global_model
+Purnella albifrons_White-fronted Honeyeater,whfhon1,Purnella albifrons_White-fronted Honeyeater,same_label
+Pycnonotus jocosus_Red-whiskered Bulbul,rewbul,Pycnonotus jocosus_Red-whiskered Bulbul,same_label
+Pycnoptilus floccosus_Pilotbird,pilotb1,Pycnoptilus floccosus_Pilotbird,same_label
+Pyrrholaemus brunneus_Redthroat,redthr1,Pyrrholaemus brunneus_Redthroat,same_label
+Pyrrholaemus sagittatus_Speckled Warbler,spewar3,Pyrrholaemus sagittatus_Speckled Warbler,same_label
+Recurvirostra novaehollandiae_Red-necked Avocet,renavo1,,not_in_global_model
+Rhipidura albiscapa_Grey Fantail,gryfan1,Rhipidura albiscapa_Gray Fantail,renamed_since_global
+Rhipidura leucophrys_Willie-wagtail,wilwag1,Rhipidura leucophrys_Willie-wagtail,same_label
+Rhipidura rufifrons_Australian Rufous Fantail,ruffan13,Rhipidura rufifrons_Rufous Fantail,renamed_since_global
+Scythrops novaehollandiae_Channel-billed Cuckoo,chbcuc2,Scythrops novaehollandiae_Channel-billed Cuckoo,same_label
+Sericornis frontalis_White-browed Scrubwren,whbscr1,Sericornis frontalis_White-browed Scrubwren,same_label
+Sericornis magnirostra_Large-billed Scrubwren,labscr2,Sericornis magnirostra_Large-billed Scrubwren,same_label
+Sericulus chrysocephalus_Regent Bowerbird,regbow1,,not_in_global_model
+Smicrornis brevirostris_Weebill,weebil1,Smicrornis brevirostris_Weebill,same_label
+Spatula rhynchotis_Australasian Shoveler,aussho1,,not_in_global_model
+Sphecotheres vieilloti_Australasian Figbird,ausfig1,Sphecotheres vieilloti_Australasian Figbird,same_label
+Spilopelia chinensis_Spotted Dove,spodov,Streptopelia chinensis_Spotted Dove,renamed_since_global
+Stagonopleura guttata_Diamond Firetail,diafir1,,not_in_global_model
+Stizoptera bichenovii_Double-barred Finch,dobfin1,Stizoptera bichenovii_Double-barred Finch,same_label
+Strepera graculina_Pied Currawong,piecur1,Strepera graculina_Pied Currawong,same_label
+Strepera versicolor_Grey Currawong,grycur1,Strepera versicolor_Gray Currawong,renamed_since_global
+Struthidea cinerea_Apostlebird,apostl1,Struthidea cinerea_Apostlebird,same_label
+Sturnus vulgaris_Common Starling,eursta,Sturnus vulgaris_European Starling,renamed_since_global
+Sugomel nigrum_Black Honeyeater,blahon1,Sugomel nigrum_Black Honeyeater,same_label
+Synoicus chinensis_King Quail,blbqua1,Synoicus chinensis_Blue-breasted Quail,renamed_since_global
+Synoicus ypsilophorus_Brown Quail,broqua1,Synoicus ypsilophorus_Brown Quail,same_label
+Tachybaptus novaehollandiae_Australasian Grebe,ausgre1,Tachybaptus novaehollandiae_Australasian Grebe,same_label
+Tachyspiza cirrocephala_Collared Sparrowhawk,colspa1,Accipiter cirrocephalus_Collared Sparrowhawk,renamed_since_global
+Tachyspiza fasciata_Brown Goshawk,brogos1,Accipiter fasciatus_Brown Goshawk,renamed_since_global
+Tachyspiza novaehollandiae_Grey Goshawk,grygos1,Accipiter novaehollandiae_Gray Goshawk,renamed_since_global
+Tadorna tadornoides_Australian Shelduck,ausshe1,Tadorna tadornoides_Australian Shelduck,same_label
+Taeniopygia guttata_Zebra Finch,zebfin2,Taeniopygia guttata_Zebra Finch,same_label
+Thinornis melanops_Black-fronted Dotterel,blfdot1,Elseyornis melanops_Black-fronted Dotterel,renamed_since_global
+Threskiornis molucca_Australian White Ibis,ausibi1,Threskiornis molucca_Australian Ibis,renamed_since_global
+Threskiornis spinicollis_Straw-necked Ibis,stnibi1,,not_in_global_model
+Todiramphus pyrrhopygius_Red-backed Kingfisher,rebkin2,,not_in_global_model
+Todiramphus sanctus_Sacred Kingfisher,sackin1,Todiramphus sanctus_Sacred Kingfisher,same_label
+Tribonyx ventralis_Black-tailed Nativehen,btnhen1,Tribonyx ventralis_Black-tailed Nativehen,same_label
+Trichoglossus chlorolepidotus_Scaly-breasted Lorikeet,scblor1,Trichoglossus chlorolepidotus_Scaly-breasted Lorikeet,same_label
+Trichoglossus moluccanus_Rainbow Lorikeet,railor5,Trichoglossus moluccanus_Rainbow Lorikeet,same_label
+Tringa nebularia_Common Greenshank,comgre,Tringa nebularia_Common Greenshank,same_label
+Turdus merula_Common Blackbird,eurbla,Turdus merula_Eurasian Blackbird,renamed_since_global
+Turnix maculosus_Red-backed Buttonquail,rebbut2,Turnix maculosus_Red-backed Buttonquail,same_label
+Turnix varius_Painted Buttonquail,paibut,Turnix varius_Painted Buttonquail,same_label
+Turnix velox_Little Buttonquail,litbut1,,not_in_global_model
+Tyto javanica_Eastern Barn Owl,eabowl1,,not_in_global_model
+Tyto longimembris_Australasian Grass-Owl,ausgro1,,not_in_global_model
+Tyto novaehollandiae_Australian Masked-Owl,aumowl1,Tyto novaehollandiae_Australian Masked-Owl,same_label
+Tyto tenebricosa_Sooty Owl,sooowl1,Tyto tenebricosa_Sooty Owl,same_label
+Vanellus miles_Masked Lapwing,maslap1,Vanellus miles_Masked Lapwing,same_label
+Vanellus tricolor_Banded Lapwing,banlap1,Vanellus tricolor_Banded Lapwing,same_label
+Zapornia pusilla_Baillon's Crake,baicra1,Zapornia pusilla_Baillon's Crake,same_label
+Zapornia tabuensis_Spotless Crake,spocra2,Zapornia tabuensis_Spotless Crake,same_label
+Zoothera lunulata_Bassian Thrush,oltthr1,Zoothera lunulata_Bassian Thrush,same_label
+Zosterops lateralis_Silvereye,silver3,Zosterops lateralis_Silvereye,same_label

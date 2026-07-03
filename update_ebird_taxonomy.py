@@ -122,7 +122,7 @@ def main():
             for label, sci, common, new_sci, new_common, old_code, new_code, reason in drift:
                 f.write(f'"{label}","{sci}","{common}","{new_sci}","{new_common}","{old_code}","{new_code}","{reason}"\n')
         print(f"\n{len(drift)} label(s) have drifted from the current eBird taxonomy (label file left untouched):")
-        for label, sci, common, new_sci, new_common, old_code, new_code, reason in drift[:20]:
+        for _label, sci, common, new_sci, new_common, _old_code, _new_code, reason in drift[:20]:
             print(f"  [{reason}] {sci} {common!r} -> {new_sci} {new_common!r}")
         if len(drift) > 20:
             print(f"  ... and {len(drift) - 20} more, see {DRIFT_REPORT.name}")
