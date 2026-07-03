@@ -60,7 +60,6 @@ Calidris ferruginea_Curlew Sandpiper,cursan,Calidris ferruginea_Curlew Sandpiper
 Caligavis chrysops_Yellow-faced Honeyeater,yefhon1,Caligavis chrysops_Yellow-faced Honeyeater,same_label
 Callocephalon fimbriatum_Gang-gang Cockatoo,gagcoc1,Callocephalon fimbriatum_Gang-gang Cockatoo,same_label
 Calyptorhynchus banksii_Red-tailed Black-Cockatoo,rtbcoc1,Calyptorhynchus banksii_Red-tailed Black-Cockatoo,same_label
-Calyptorhynchus funereus_Yellow-tailed Black-Cockatoo,ytbcoc1,Calyptorhynchus funereus_Yellow-tailed Black-Cockatoo,same_label
 Calyptorhynchus lathami_Glossy Black-Cockatoo,glbcoc1,Calyptorhynchus lathami_Glossy Black-Cockatoo,same_label
 Carduelis carduelis_European Goldfinch,eurgol,Carduelis carduelis_European Goldfinch,same_label
 Centropus phasianinus_Pheasant Coucal,phecou2,Centropus phasianinus_Pheasant Coucal,same_label
@@ -76,6 +75,7 @@ Chlidonias hybrida_Whiskered Tern,whiter2,Chlidonias hybrida_Whiskered Tern,same
 Chroicocephalus novaehollandiae_Silver Gull,silgul2,Chroicocephalus novaehollandiae_Silver Gull,same_label
 Cincloramphus cruralis_Brown Songlark,broson1,Cincloramphus cruralis_Brown Songlark,same_label
 Cincloramphus mathewsi_Rufous Songlark,rufson1,Cincloramphus mathewsi_Rufous Songlark,same_label
+Cincloramphus timoriensis_Tawny Grassbird,tawgra3,Cincloramphus timoriensis_Tawny Grassbird,same_label
 Cinclosoma cinnamomeum_Cinnamon Quail-thrush,ciqthr1,,not_in_global_model
 Cinclosoma punctatum_Spotted Quail-thrush,spqthr1,Cinclosoma punctatum_Spotted Quail-thrush,same_label
 Circus approximans_Swamp Harrier,swahar1,Circus approximans_Swamp Harrier,same_label
@@ -113,6 +113,7 @@ Egretta garzetta_Little Egret,litegr,Egretta garzetta_Little Egret,same_label
 Egretta novaehollandiae_White-faced Heron,whfher1,Egretta novaehollandiae_White-faced Heron,same_label
 Elanus axillaris_Black-shouldered Kite,auskit1,,not_in_global_model
 Elanus scriptus_Letter-winged Kite,lewkit1,,not_in_global_model
+Emblema modestum_Plum-headed Finch,plhfin1,,not_in_global_model
 Emblema pictum_Painted Finch,paifir1,,not_in_global_model
 Entomyzon cyanotis_Blue-faced Honeyeater,blfhon1,Entomyzon cyanotis_Blue-faced Honeyeater,same_label
 Eolophus roseicapilla_Galah,galah,Eolophus roseicapilla_Galah,same_label
@@ -145,7 +146,6 @@ Gerygone fusca_Western Gerygone,wesger1,Gerygone fusca_Western Gerygone,same_lab
 Gerygone mouki_Brown Gerygone,broger1,Gerygone mouki_Brown Gerygone,same_label
 Gerygone olivacea_White-throated Gerygone,whtger1,Gerygone olivacea_White-throated Gerygone,same_label
 Glareola isabella_Australian Pratincole,auspra1,,not_in_global_model
-Glossopsitta concinna_Musk Lorikeet,muslor1,Glossopsitta concinna_Musk Lorikeet,same_label
 Grallina cyanoleuca_Magpie-lark,maglar1,Grallina cyanoleuca_Magpie-lark,same_label
 Grantiella picta_Painted Honeyeater,paihon1,Grantiella picta_Painted Honeyeater,same_label
 Gymnorhina tibicen_Australian Magpie,ausmag2,Gymnorhina tibicen_Australian Magpie,same_label
@@ -219,7 +219,6 @@ Pandion haliaetus_Osprey,osprey,Pandion haliaetus_Osprey,same_label
 Pardalotus punctatus_Spotted Pardalote,spopar1,Pardalotus punctatus_Spotted Pardalote,same_label
 Pardalotus rubricatus_Red-browed Pardalote,rebpar6,Pardalotus rubricatus_Red-browed Pardalote,same_label
 Pardalotus striatus_Striated Pardalote,strpar1,Pardalotus striatus_Striated Pardalote,same_label
-Parvipsitta pusilla_Little Lorikeet,litlor1,Parvipsitta pusilla_Little Lorikeet,same_label
 Passer domesticus_House Sparrow,houspa,Passer domesticus_House Sparrow,same_label
 Pedionomus torquatus_Plains Wanderer,plawan1,,not_in_global_model
 Pelecanus conspicillatus_Australian Pelican,auspel1,Pelecanus conspicillatus_Australian Pelican,same_label
@@ -260,6 +259,7 @@ Porphyrio melanotus_Australasian Swamphen,purswa6,Porphyrio melanotus_Australasi
 Porzana fluminea_Australian Spotted Crake,auscra1,,not_in_global_model
 Psephotellus varius_Mulga Parrot,mulpar1,Psephotus varius_Mulga Parrot,renamed_since_global
 Psephotus haematonotus_Red-rumped Parrot,rerpar1,Psephotus haematonotus_Red-rumped Parrot,same_label
+Psitteuteles pusillus_Little Lorikeet,litlor1,Parvipsitta pusilla_Little Lorikeet,renamed_since_global
 Psophodes cristatus_Chirruping Wedgebill,chiwed2,Psophodes cristatus_Chirruping Wedgebill,same_label
 Psophodes olivaceus_Eastern Whipbird,easwhi1,Psophodes olivaceus_Eastern Whipbird,same_label
 Ptilinopus regina_Rose-crowned Fruit-Dove,rcfdov1,Ptilinopus regina_Rose-crowned Fruit-Dove,same_label
@@ -307,6 +307,7 @@ Todiramphus pyrrhopygius_Red-backed Kingfisher,rebkin2,,not_in_global_model
 Todiramphus sanctus_Sacred Kingfisher,sackin1,Todiramphus sanctus_Sacred Kingfisher,same_label
 Tribonyx ventralis_Black-tailed Nativehen,btnhen1,Tribonyx ventralis_Black-tailed Nativehen,same_label
 Trichoglossus chlorolepidotus_Scaly-breasted Lorikeet,scblor1,Trichoglossus chlorolepidotus_Scaly-breasted Lorikeet,same_label
+Trichoglossus concinnus_Musk Lorikeet,muslor1,Glossopsitta concinna_Musk Lorikeet,renamed_since_global
 Trichoglossus moluccanus_Rainbow Lorikeet,railor5,Trichoglossus moluccanus_Rainbow Lorikeet,same_label
 Tringa nebularia_Common Greenshank,comgre,Tringa nebularia_Common Greenshank,same_label
 Turdus merula_Common Blackbird,eurbla,Turdus merula_Eurasian Blackbird,renamed_since_global
@@ -319,6 +320,7 @@ Tyto novaehollandiae_Australian Masked-Owl,aumowl1,Tyto novaehollandiae_Australi
 Tyto tenebricosa_Sooty Owl,sooowl1,Tyto tenebricosa_Sooty Owl,same_label
 Vanellus miles_Masked Lapwing,maslap1,Vanellus miles_Masked Lapwing,same_label
 Vanellus tricolor_Banded Lapwing,banlap1,Vanellus tricolor_Banded Lapwing,same_label
+Zanda funerea_Yellow-tailed Black-Cockatoo,ytbcoc1,Calyptorhynchus funereus_Yellow-tailed Black-Cockatoo,renamed_since_global
 Zapornia pusilla_Baillon's Crake,baicra1,Zapornia pusilla_Baillon's Crake,same_label
 Zapornia tabuensis_Spotless Crake,spocra2,Zapornia tabuensis_Spotless Crake,same_label
 Zoothera lunulata_Bassian Thrush,oltthr1,Zoothera lunulata_Bassian Thrush,same_label
