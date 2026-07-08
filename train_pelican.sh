@@ -74,6 +74,9 @@ if $HELPERS_AS_NONEVENTS && ! $USER_SET_PREFIXES; then
     fi
 fi
 
+# focal-loss-gamma default is 2.0 (was 3.0): the Smiths Lake gamma sweep showed gamma=3
+# over-focused and starved hard/faint positives; gamma=2 recovered recall on the labeled
+# soundscape (R@1FP/hr 0.213 -> 0.226, and fewer false negatives). See configs/smithslake_gamma.yaml.
 TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
 OUTPUT_DIR="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers"
 VENV="$(dirname "$0")/.venv/bin/python"
@@ -112,6 +115,6 @@ echo ""
     --upsampling_ratio 0.4 \
     --focal-loss \
     --focal-loss-alpha 0.25 \
-    --focal-loss-gamma 3.0 \
+    --focal-loss-gamma 2.0 \
     --epochs 50 \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
