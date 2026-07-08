@@ -265,7 +265,9 @@ def load_from_cache(path):
     x_test = data.get("x_test", np.array([]))
     y_test = data.get("y_test", np.array([]))
 
-    labels = data["labels"]
+    # Stored as an object ndarray (save_to_cache); return a plain list so the cache path
+    # matches the non-cached loader, whose downstream code (e.g. `if labels`) assumes a list.
+    labels = data["labels"].tolist()
     binary_classification = bool(data.get("binary_classification", False))
     multi_label = bool(data.get("multi_label", False))
 
