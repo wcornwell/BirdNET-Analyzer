@@ -37,8 +37,19 @@ REPO_ROOT = Path(__file__).parent
 PACKAGE_DIR = REPO_ROOT / "birdnet_analyzer"
 LABELS_FILE = PACKAGE_DIR / "checkpoints" / "V2.4" / "BirdNET_GLOBAL_6K_V2.4_Labels.txt"
 CONFIG_FILE = PACKAGE_DIR / "config.py"
-OLD_CODES_FILE = PACKAGE_DIR / "eBird_taxonomy_codes_2024E.json"
 DRIFT_REPORT = REPO_ROOT / "ebird_taxonomy_drift_report.csv"
+
+
+def latest_codes_file() -> Path | None:
+    """Newest eBird_taxonomy_codes_*.json present, or None if there is none.
+
+    eBird codes are stable across editions, so diffing against the most recent
+    existing file (not a hardcoded edition) keeps drift detection accurate as the
+    taxonomy advances. This runs before the new edition's file is written, so the
+    newest present file is always the previous edition.
+    """
+    candidates = sorted(PACKAGE_DIR.glob("eBird_taxonomy_codes_*.json"))
+    return candidates[-1] if candidates else None
 
 
 def latest_edition() -> str:
@@ -66,7 +77,9 @@ def main():
     by_sciname = {row["sciName"]: row for row in taxonomy}
     print(f"  {len(taxonomy)} taxa fetched.")
 
-    old_codes = json.loads(OLD_CODES_FILE.read_text())
+    old_codes_file = latest_codes_file()
+    old_codes = json.loads(old_codes_file.read_text()) if old_codes_file else {}
+    print(f"Diffing against: {old_codes_file.name if old_codes_file else '(none present)'}")
     labels = [line.strip() for line in LABELS_FILE.read_text().splitlines() if line.strip()]
     print(f"{len(labels)} labels in the frozen model label file.")
 
