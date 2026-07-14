@@ -50,6 +50,7 @@ def run_batch_analysis(
     custom_classifier_file,
     output_type,
     additional_columns,
+    split_tables_checkbox,
     locale,
     batch_size,
     producers_number,
@@ -91,6 +92,7 @@ def run_batch_analysis(
         progress=progress,
         n_producers=producers_number,
         n_workers=workers_number,
+        split_tables=split_tables_checkbox,
     )
     skipped_files = [results.inputs[ui] for ui in results.unprocessable_inputs]
     header = (
@@ -110,6 +112,11 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
     with gr.Tab(loc.localize("multi-tab-title")):
         input_directory_state = gr.State()
         output_directory_predict_state = gr.State()
+
+        gu.info_box(
+            description=loc.localize("multi-tab-info-text"),
+            title=loc.localize("multi-tab-info-title"),
+        )
 
         with gr.Group(), gr.Row(equal_height=True):
             select_directory_btn = gr.Button(
@@ -136,19 +143,28 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             ],
         )
 
+        preview_limit = 100
+
         def select_directory_on_empty():
             folder = gu.select_folder(state_key="batch-analysis-data-dir")
 
             if folder:
-                files_and_durations = gu.get_audio_files_and_durations(folder)
-                if len(files_and_durations) > 100:
+                # Only load durations for the first files shown in the preview.
+                # Fetch one extra to detect whether more files exist without
+                # walking (and probing durations for) the whole directory.
+                files_and_durations = gu.get_audio_files_and_durations(
+                    folder, max_files=preview_limit + 1
+                )
+                if len(files_and_durations) > preview_limit:
+                    # Count the remaining files with a fast walk that skips durations.
+                    total = gu.count_audio_files(folder)
                     return [
                         folder,
                         folder,
                         [
-                            *files_and_durations[:100],
+                            *files_and_durations[:preview_limit],
                             (
-                                f"{len(files_and_durations) - 100} "
+                                f"{total - preview_limit} "
                                 f"{loc.localize('multi-tab-more-files-label')}",
                                 "...",
                             ),
@@ -219,10 +235,15 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                 label=loc.localize("multi-tab-additional-columns-checkbox-label"),
                 info=loc.localize("multi-tab-additional-columns-checkbox-info"),
             )
+            split_tables_checkbox = gr.Checkbox(
+                False,
+                label=loc.localize("multi-tab-split-table-checkbox-label"),
+                info=loc.localize("multi-tab-split-table-checkbox-info"),
+            )
 
         bs_number, producers_number, workers_number = gu.computing_settings()
         start_batch_analysis_btn = gr.Button(
-            loc.localize("analyze-start-button-label"), variant="huggingface"
+            loc.localize("analyze-start-button-label"), variant="primary"
         )
         result_grid = gr.List(headers=[""])
         inputs = [
@@ -247,6 +268,7 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             model_settings["selected_classifier_state"],
             output_type_radio,
             additional_columns_,
+            split_tables_checkbox,
             model_settings["locale_dropdown"],
             bs_number,
             producers_number,

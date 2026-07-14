@@ -117,6 +117,11 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
         input_directory_state = gr.State()
         db_directory_state = gr.State()
 
+        gu.info_box(
+            description=loc.localize("embeddings-tab-info-text"),
+            title=loc.localize("embeddings-tab-info-title"),
+        )
+
         def select_directory_to_state_and_tb(current, state_key=None):
             path = (
                 gu.select_directory(collect_files=False, state_key=state_key)
@@ -157,8 +162,7 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
             )
             db_path_tb = gr.Textbox(
                 show_label=False,
-                # buttons=["copy"], # gradio>=6
-                show_copy_button=True,
+                buttons=["copy"],
                 interactive=False,
                 info="⚠️ " + loc.localize("embeddings-tab-dp-path-textbox-info"),
                 placeholder=loc.localize(
@@ -324,7 +328,7 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
 
         progress_plot = gr.Plot(show_label=False)
         start_btn = gr.Button(
-            loc.localize("embeddings-tab-start-button-label"), variant="huggingface"
+            loc.localize("embeddings-tab-start-button-label"), variant="primary"
         )
 
         start_btn.click(

@@ -160,13 +160,10 @@ def analyze(
             output = audio_input
 
     if split_tables:
-        output: Path = (
-            audio_input_path.parent if audio_input_path.is_file() else audio_input_path
-        )
         _split_tables(
             df,
             audio_input_path,
-            output,
+            Path(output),
             fmin,
             fmax,
             predictions,
@@ -181,53 +178,53 @@ def analyze(
             sensitivity,
             species_list_file,
         )
+    else:
+        if "table" in rtypes:
+            save_as_rtable(
+                df,
+                fmin,
+                fmax,
+                predictions.model_fmin,
+                predictions.model_fmax,
+                audio_speed,
+                Path(output) / cfg.OUTPUT_RAVEN_FILENAME,
+            )
 
-    if "table" in rtypes:
-        save_as_rtable(
-            df,
-            fmin,
-            fmax,
-            predictions.model_fmin,
-            predictions.model_fmax,
-            audio_speed,
-            Path(output) / cfg.OUTPUT_RAVEN_FILENAME,
-        )
+        if "csv" in rtypes:
+            save_as_csv(
+                df,
+                Path(output) / cfg.OUTPUT_CSV_FILENAME,
+                additional_columns,
+                lat=lat,
+                lon=lon,
+                week=week,
+                overlap=overlap,
+                min_conf=min_conf,
+                sensitivity=sensitivity,
+                species_list_file=species_list_file,
+                model_path=predictions.model_path,
+            )
 
-    if "csv" in rtypes:
-        save_as_csv(
-            df,
-            Path(output) / cfg.OUTPUT_CSV_FILENAME,
-            additional_columns,
-            lat=lat,
-            lon=lon,
-            week=week,
-            overlap=overlap,
-            min_conf=min_conf,
-            sensitivity=sensitivity,
-            species_list_file=species_list_file,
-            model_path=predictions.model_path,
-        )
+        if "kaleidoscope" in rtypes:
+            save_as_kaleidoscope(df, Path(output) / cfg.OUTPUT_KALEIDOSCOPE_FILENAME)
 
-    if "kaleidoscope" in rtypes:
-        save_as_kaleidoscope(df, Path(output) / cfg.OUTPUT_KALEIDOSCOPE_FILENAME)
+        if "audacity" in rtypes:
+            save_as_audacity(df, Path(output) / cfg.OUTPUT_AUDACITY_FILENAME)
 
-    if "audacity" in rtypes:
-        save_as_audacity(df, Path(output) / cfg.OUTPUT_AUDACITY_FILENAME)
-
-    if "parquet" in rtypes:
-        save_as_parquet(
-            df,
-            Path(output) / cfg.OUTPUT_PARQUET_FILENAME,
-            additional_columns,
-            lat=lat,
-            lon=lon,
-            week=week,
-            overlap=overlap,
-            min_conf=min_conf,
-            sensitivity=sensitivity,
-            species_list_file=species_list_file,
-            model_path=predictions.model_path,
-        )
+        if "parquet" in rtypes:
+            save_as_parquet(
+                df,
+                Path(output) / cfg.OUTPUT_PARQUET_FILENAME,
+                additional_columns,
+                lat=lat,
+                lon=lon,
+                week=week,
+                overlap=overlap,
+                min_conf=min_conf,
+                sensitivity=sensitivity,
+                species_list_file=species_list_file,
+                model_path=predictions.model_path,
+            )
 
     if save_params:
         save_params_to_file(
@@ -355,6 +352,21 @@ def _split_tables(
                 df_file, output / (file_shorthand + ".BirdNET.results.txt")
             )
 
+        if "parquet" in rtypes:
+            save_as_parquet(
+                df_file,
+                output / (file_shorthand + ".BirdNET.results.parquet"),
+                additional_columns,
+                lat=lat,
+                lon=lon,
+                week=week,
+                overlap=overlap,
+                min_conf=min_conf,
+                sensitivity=sensitivity,
+                species_list_file=species_list_file,
+                model_path=predictions.model_path,
+            )
+
 
 def _merge_consecutive_segments(
     df: pd.DataFrame, merge_consecutive: int, hop_size: float = 3.0
@@ -367,7 +379,9 @@ def _merge_consecutive_segments(
         Input predictions containing at least "input", "species_name", "start_time",
         "end_time" and "confidence".
     merge_consecutive : int
-        Number of consecutive rows that must be contiguous to merge them.
+        Maximum number of consecutive contiguous rows to collapse into a single
+        segment. Runs longer than this are split into chunks of at most
+        ``merge_consecutive`` rows; runs shorter than it are still merged.
     hop_size : float, optional
         Allowed tolerance (in seconds) between the end of one segment and the start of
         the next to consider them consecutive, by default 3.0.
@@ -433,7 +447,8 @@ def _merge_consecutive_segments(
             else:
                 break
 
-        if len(window) == merge_consecutive:
+        # Merge whatever consecutive rows we collected (1 up to merge_consecutive).
+        if len(window) > 1:
             merged_row = window[0].copy()
             merged_row["start_time"] = window[0]["start_time"]
             merged_row["end_time"] = window[-1]["end_time"]
@@ -449,10 +464,10 @@ def _merge_consecutive_segments(
                     merged_row["confidence"] = avg_confidence
 
             merged_records.append(merged_row.to_dict())
-            i += merge_consecutive
         else:
             merged_records.append(window[0].to_dict())
-            i += 1
+
+        i += len(window)
 
     merged_df = pd.DataFrame.from_records(merged_records, columns=df.columns)
     return merged_df.sort_values(by=["input", "start_time", "end_time", "species_name"])

@@ -9,7 +9,7 @@ from birdnet.globals import (
     MODEL_LANGUAGES,
 )
 
-from birdnet_analyzer.config import AUTOTUNE_METRICS
+from birdnet_analyzer.config import AUTOTUNE_METRICS, TRAINED_MODEL_OUTPUT_FORMATS
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 ASCII_LOGO = r"""                        
@@ -500,7 +500,7 @@ def analyzer_parser():
         "--merge_consecutive",
         type=int,
         default=1,
-        help="Maximum number of consecutive detections above MIN_CONF to merge for each detected species. This will result in fewer entires in the result file with segments longer than 3 seconds. Set to 0 or 1 to disable merging. Set to None to include all consecutive detections. We use the mean of the top 3 scores from all consecutive detections for merging.",
+        help="Maximum number of consecutive detections above the threshold to merge for each detected species. This will result in fewer entries in the result file with segments longer than 3 seconds. Set to 0 or 1 to disable merging. We use the mean of the top 3 scores from all consecutive detections for merging.",
     )
     parser.add_argument(
         "--use_perch",
@@ -888,10 +888,11 @@ def train_parser():
         help="Upsampling mode.",
     )
     parser.add_argument(
-        "--model_format",
-        default="tflite",
-        choices=["tflite", "raven", "both"],
-        help="Model output format.",
+        "--model_formats",
+        nargs="+",
+        default=["tflite"],
+        choices=get_args(TRAINED_MODEL_OUTPUT_FORMATS),
+        help="Model output format(s). One or more of 'tflite', 'raven', 'detached'.",
     )
     parser.add_argument(
         "--model_save_mode",

@@ -8,6 +8,7 @@ import sys
 import warnings
 from collections.abc import Callable
 from contextlib import suppress
+from html import escape
 from typing import Literal, cast, get_args
 
 import gradio as gr
@@ -149,6 +150,18 @@ def get_audio_files_and_durations(folder, max_files=None):
     return files_and_durations
 
 
+def count_audio_files(folder):
+    """Counts the audio files in a folder without collecting their paths or durations.
+
+    Args:
+        folder (str): The path to the folder containing audio files.
+
+    Returns:
+        int: The number of audio files in the folder (recursively).
+    """
+    return utils.count_audio_files(folder)
+
+
 def set_window(window):
     """
     Sets the global _WINDOW variable to the provided window object.
@@ -288,7 +301,7 @@ def build_settings():
                             "light",
                         ),
                     ],
-                    value=lambda: settings.theme(),  # noqa: PLW0108
+                    value=settings.theme,
                     label=loc.localize("settings-tab-theme-dropdown-label"),
                     info="⚠️" + loc.localize("settings-tab-theme-dropdown-info"),
                     interactive=True,
@@ -312,8 +325,7 @@ def build_settings():
             ),
             interactive=False,
             placeholder=loc.localize("settings-tab-error-log-textbox-placeholder"),
-            # buttons=["copy"], # gradio>=6
-            show_copy_button=True,
+            buttons=["copy"],
         )
 
         def on_language_change(value):
@@ -677,7 +689,6 @@ def show_species_choice(choice: str, file_input):
         return [
             gr.update(visible=False),
             gr.update(visible=True),
-            gr.update(visible=False),
             gr.update(visible=bool(file_input)),
         ]
     if choice == _PREDICT_SPECIES:
@@ -685,12 +696,10 @@ def show_species_choice(choice: str, file_input):
             gr.update(visible=True),
             gr.update(visible=False),
             gr.update(visible=False),
-            gr.update(visible=False),
         ]
 
     return [
         gr.update(visible=False),
-        gr.update(visible=True),
         gr.update(visible=False),
         gr.update(visible=False),
     ]
@@ -844,7 +853,6 @@ def species_lists(opened=True) -> dict[_SPECIES_KEYS, gr.components.Component]:
             species_file_input = gr.File(
                 file_types=[".txt"], visible=False, show_label=False
             )
-            empty_col = gr.Column()
 
         list_df = gr.List(
             value=[],
@@ -857,7 +865,7 @@ def species_lists(opened=True) -> dict[_SPECIES_KEYS, gr.components.Component]:
     species_list_radio.change(
         show_species_choice,
         inputs=[species_list_radio, species_file_input],
-        outputs=[position_row, species_file_input, empty_col, list_df],
+        outputs=[position_row, species_file_input, list_df],
         show_progress="hidden",
     )
 
@@ -1017,6 +1025,22 @@ def computing_settings():
     return bs_number, producers_number, workers_number
 
 
+def info_box(description: str, title="Info") -> gr.Accordion:
+    title = escape(title)
+    description = escape(description)
+
+    with gr.Accordion(
+        title,
+        elem_classes="info-accordion-dark"
+        if settings.theme() == "dark"
+        else "info-accordion",
+        open=False,
+    ) as c:
+        gr.Markdown(description)
+
+        return c
+
+
 def slider_to_value(value: float):
     return max(0.1, 1.0 / (value * -1)) if value < 0 else max(1.0, float(value))
 
@@ -1034,13 +1058,9 @@ def open_window(
     multiprocessing.freeze_support()
 
     with (
-        open(os.path.join(SCRIPT_DIR, "assets/gui.css")) as css_file,  # gradio>=6
-        open(os.path.join(SCRIPT_DIR, "assets/gui.js")) as js_file,
         gr.Blocks(
             theme=gr.themes.Default(),
             analytics_enabled=False,
-            css=css_file.read(),
-            js=js_file.read(),
         ) as demo,
     ):
         build_header()
@@ -1071,17 +1091,20 @@ def open_window(
                 ]
 
             demo.load(update_plots, inputs=inputs, outputs=outputs)
-
-    _URL = demo.queue(api_open=False).launch(
-        # css=css_file.read(), # gradio>=6
-        # js=js_file.read(),
-        # theme=gr.themes.Default(),
-        prevent_thread_lock=True,
-        quiet=True,
-        enable_monitoring=False,
-        allowed_paths=_get_win_drives() if sys.platform == "win32" else ["/"],
-        # footer_links=[], # gradio>=6
-    )[1]
+    with (
+        open(os.path.join(SCRIPT_DIR, "assets/gui.css")) as css_file,
+        open(os.path.join(SCRIPT_DIR, "assets/gui.js")) as js_file,
+    ):
+        _URL = demo.queue(api_open=False).launch(
+            css=css_file.read(),
+            js=js_file.read(),
+            theme=gr.themes.Default(),
+            prevent_thread_lock=True,
+            quiet=True,
+            enable_monitoring=False,
+            allowed_paths=_get_win_drives() if sys.platform == "win32" else ["/"],
+            footer_links=[],
+        )[1]
     webview.settings["ALLOW_DOWNLOADS"] = True
     _WINDOW = webview.create_window(
         "BirdNET-Analyzer",
