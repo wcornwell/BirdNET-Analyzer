@@ -888,6 +888,19 @@ def train_parser():
         help="Upsampling mode.",
     )
     parser.add_argument(
+        "--non_event_prefixes",
+        default="",
+        help="Comma-separated class-name prefixes whose folders are trained as non-events "
+        "(all-zero hard-negative rows, no output neuron) instead of positive classes "
+        '(e.g. "Environment_,Homo sapiens_"). Empty by default.',
+    )
+    parser.add_argument(
+        "--keep_as_class",
+        default="",
+        help="Comma-separated exact class names that stay positive, reportable classes even "
+        'when they match a --non_event_prefixes prefix (e.g. "Homo sapiens_Airplane,Homo sapiens_Siren").',
+    )
+    parser.add_argument(
         "--model_formats",
         nargs="+",
         default=["tflite"],

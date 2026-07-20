@@ -32,6 +32,8 @@ def train(
     mixup: bool = False,
     upsampling_ratio: float = 0.0,
     upsampling_mode: UPSAMPLING_MODES = "repeat",
+    non_event_prefixes: str = "",
+    keep_as_class: str = "",
     model_formats: list[TRAINED_MODEL_OUTPUT_FORMATS]
     | TRAINED_MODEL_OUTPUT_FORMATS = "tflite",
     model_save_mode: TRAINED_MODEL_SAVE_MODES = "replace",
@@ -80,6 +82,12 @@ def train(
                                             classes. Defaults to 0.0.
         upsampling_mode (Literal["repeat", "mean", "smote"], optional): Mode for
             upsampling. Defaults to "repeat".
+        non_event_prefixes (str, optional): Comma-separated class-name prefixes whose
+            folders are trained as non-events (all-zero hard-negative rows, no output
+            neuron) instead of positive classes. Defaults to "".
+        keep_as_class (str, optional): Comma-separated exact class names that stay
+            positive, reportable classes even when they match a non_event_prefixes
+            prefix. Defaults to "".
         model_formats (list[Literal["tflite", "raven", "detached"]] | str, optional):
             One or more formats to save the trained model. Defaults to "tflite".
         model_save_mode (Literal["replace", "append"], optional): Save mode for the
@@ -107,7 +115,17 @@ def train(
     Returns:
         None
     """
+    from birdnet_analyzer import config as cfg
     from birdnet_analyzer.train.utils import train_model
+
+    # Helper classes -> non-events (hard negatives, no output neuron). Read at train
+    # time by train.utils.is_non_event via the config module.
+    cfg.NON_EVENT_PREFIXES = [
+        p.strip() for p in non_event_prefixes.split(",") if p.strip()
+    ]
+    cfg.NON_EVENT_KEEP_CLASSES = [
+        c.strip() for c in keep_as_class.split(",") if c.strip()
+    ]
 
     train_model(
         audio_input,

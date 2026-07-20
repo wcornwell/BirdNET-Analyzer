@@ -16,12 +16,28 @@ from birdnet import load
 from sklearn.model_selection import RepeatedStratifiedKFold
 
 from birdnet_analyzer import audio, model, model_utils, utils
+from birdnet_analyzer import config as cfg
 from birdnet_analyzer.config import (
     ALLOWED_FILETYPES,
     AUTOTUNE_METRICS,
     NON_EVENT_CLASSES,
 )
 from birdnet_analyzer.model_utils import GLOBAL_PREFETCH_RATIO
+
+
+def is_non_event(label: str) -> bool:
+    """True if a folder label is a hard-negative non-event (no output neuron).
+
+    Matches the built-in NON_EVENT_CLASSES (exact lowercase) plus any class whose
+    name starts with a configured NON_EVENT_PREFIXES prefix, unless it is listed in
+    NON_EVENT_KEEP_CLASSES (kept as a positive, reportable class). Reads config
+    dynamically because NON_EVENT_PREFIXES/NON_EVENT_KEEP_CLASSES are set at train time.
+    """
+    if label.lower() in cfg.NON_EVENT_CLASSES:
+        return True
+    if label in cfg.NON_EVENT_KEEP_CLASSES:
+        return False
+    return any(label.startswith(p) for p in cfg.NON_EVENT_PREFIXES)
 
 # Internal batch size the encoding pipeline uses per inference call. On CPU the tflite
 # model resizes its input tensor whenever the batch shape changes, so small batches are
@@ -217,7 +233,7 @@ def _load_training_data(
     valid_labels = [
         label
         for label in labels
-        if label.lower() not in NON_EVENT_CLASSES and not label.startswith("-")
+        if not is_non_event(label) and not label.startswith("-")
     ]
     is_binary = len(valid_labels) == 1
     is_multi_label = len(valid_labels) > 1 and any("," in f for f in train_folders)
@@ -297,9 +313,7 @@ def _load_training_data(
                 folder_labels = folder.split(",")
 
                 for label in folder_labels:
-                    if label.lower() not in NON_EVENT_CLASSES and not label.startswith(
-                        "-"
-                    ):
+                    if not is_non_event(label) and not label.startswith("-"):
                         label_vector[valid_labels.index(label)] = 1
                     elif label.startswith("-") and label[1:] in valid_labels:
                         # Negative labels need to be contained in the valid labels
