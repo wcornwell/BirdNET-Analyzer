@@ -475,6 +475,12 @@ def train_model(
     Returns:
         A keras `History` object, whose `history` property contains all the metrics.
     """
+    # train_linear_classifier derives the validation-metrics CSV path from
+    # cfg.CUSTOM_CLASSIFIER; the refactor loader passes `output` as a param rather than
+    # via global config, so set it here to write <output>_validation_metrics.csv next to
+    # the model (matching main). Saving uses `output` directly, so this only steers the
+    # metrics path; inference (the other CUSTOM_CLASSIFIER reader) is not active here.
+    cfg.CUSTOM_CLASSIFIER = output
 
     (
         x_train_full,

@@ -19,7 +19,7 @@ import numpy as np
 import tensorflow as tf
 from birdnet.acoustic.models.v2_4.pb import AcousticPBDownloaderV2_4
 
-from birdnet_analyzer import utils
+from birdnet_analyzer import config as cfg, utils
 from birdnet_analyzer.config import RANDOM_SEED
 from birdnet_analyzer.train import custom_models
 
