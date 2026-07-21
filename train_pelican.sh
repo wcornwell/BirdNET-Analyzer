@@ -113,7 +113,10 @@ else
 fi
 echo ""
 
-"$VENV" -m birdnet_analyzer.train "$TRAIN_DATA" \
+# Launched via train_tf_first.py (not `-m birdnet_analyzer.train`) so TensorFlow binds
+# its absl before the birdnet-library loader imports PyArrow — without this the trainer
+# deadlocks at epoch 1 on macOS (see train_tf_first.py / CLAUDE.md).
+"$VENV" "$(dirname "$0")/train_tf_first.py" "$TRAIN_DATA" \
     -o "$OUTPUT_DIR/$NAME" \
     --hidden_units 2048 \
     --dropout 0.25 \
