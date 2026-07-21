@@ -7,6 +7,7 @@ import csv
 import json
 import logging
 import os
+
 # Set TensorFlow environment variables before any other imports (macOS XLA deadlock fix)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["WRAPT_DISABLE_EXTENSIONS"] = "true"
@@ -19,7 +20,8 @@ import numpy as np
 import tensorflow as tf
 from birdnet.acoustic.models.v2_4.pb import AcousticPBDownloaderV2_4
 
-from birdnet_analyzer import config as cfg, utils
+from birdnet_analyzer import config as cfg
+from birdnet_analyzer import utils
 from birdnet_analyzer.config import RANDOM_SEED
 from birdnet_analyzer.train import custom_models
 
@@ -383,7 +385,9 @@ def upsampling(
         deficit = int(np.sum(np.maximum(0, min_samples - class_counts)))
 
         print(f"Upsampling summary (mode={mode}, ratio={ratio}):")
-        print(f"  Reference class: {max_class_name} ({max_class_count} training samples)")
+        print(
+            f"  Reference class: {max_class_name} ({max_class_count} training samples)"
+        )
         print(f"  Target min samples per class: {min_samples}")
         print(f"  Classes below target: {num_below}/{len(class_counts)}")
         print(f"  Estimated samples to add: {deficit}")
@@ -674,7 +678,10 @@ def train_linear_classifier(
     try:
         from sklearn.metrics import precision_recall_fscore_support
     except Exception as e:
-        print(f"[WARN] Could not import scikit-learn metrics ({e}). Skipping metrics summary.")
+        print(
+            f"[WARN] Could not import scikit-learn metrics ({e}). "
+            "Skipping metrics summary."
+        )
         return classifier, history
 
     # Predict probabilities on the held-out validation set
@@ -688,15 +695,22 @@ def train_linear_classifier(
     y_pred = (y_prob >= threshold).astype(int)
 
     # Overall metrics
-    prec_micro, rec_micro, _, _ = precision_recall_fscore_support(y_true, y_pred, average="micro", zero_division=0)
-    prec_macro, rec_macro, _, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
+    prec_micro, rec_micro, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="micro", zero_division=0
+    )
+    prec_macro, rec_macro, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="macro", zero_division=0
+    )
     print(
-        f"[VAL] Overall (micro)  Precision={prec_micro:.4f}  Recall={rec_micro:.4f}\n[VAL] Overall (macro)  Precision={prec_macro:.4f}  Recall={rec_macro:.4f}",
+        f"[VAL] Overall (micro)  Precision={prec_micro:.4f}  Recall={rec_micro:.4f}\n"
+        f"[VAL] Overall (macro)  Precision={prec_macro:.4f}  Recall={rec_macro:.4f}",
         flush=True,
     )
 
     # Per-class metrics
-    prec_cls, rec_cls, _, _ = precision_recall_fscore_support(y_true, y_pred, average=None, zero_division=0)
+    prec_cls, rec_cls, _, _ = precision_recall_fscore_support(
+        y_true, y_pred, average=None, zero_division=0
+    )
 
     # Index → label mapping: prefer `labels` arg from train_linear_classifier,
     # fall back to cfg.LABELS, then index-based names
@@ -753,8 +767,12 @@ def train_linear_classifier(
                 writer.writerow(["type", "label", "precision", "recall"])
 
                 # Overall metrics
-                writer.writerow(["overall_micro", "", f"{prec_micro:.6f}", f"{rec_micro:.6f}"])
-                writer.writerow(["overall_macro", "", f"{prec_macro:.6f}", f"{rec_macro:.6f}"])
+                writer.writerow(
+                    ["overall_micro", "", f"{prec_micro:.6f}", f"{rec_micro:.6f}"]
+                )
+                writer.writerow(
+                    ["overall_macro", "", f"{prec_macro:.6f}", f"{rec_macro:.6f}"]
+                )
 
                 # Species-level (per-class) metrics
                 for i, (p, r) in enumerate(zip(prec_cls, rec_cls, strict=True)):
@@ -1059,106 +1077,3 @@ def flat_sigmoid(x, sensitivity=-1, bias=1.0):
     transformed_bias = (bias - 1.0) * 10.0
 
     return 1 / (1.0 + np.exp(sensitivity * np.clip(x + transformed_bias, -20, 20)))
-
-
-def predict_with_perch(data: np.ndarray):
-    global PERCH_MODEL
-
-    if PERCH_MODEL is None:
-        PERCH_MODEL = tf.saved_model.load(
-            cfg.MODEL_PATH,
-        )
-
-    result = PERCH_MODEL.signatures["serving_default"](inputs=tf.constant(data, dtype="float32"))
-
-    return tf.nn.softmax(result["label"], axis=-1).numpy()
-
-
-def predict(sample):
-    """Uses the main net to predict a sample.
-
-    Args:
-        sample: Audio sample.
-
-    Returns:
-        The prediction scores for the sample.
-    """
-    # Has custom classifier?
-    if cfg.CUSTOM_CLASSIFIER is not None:
-        return predict_with_custom_classifier(sample)
-
-    if cfg.USE_PERCH:
-        return predict_with_perch(sample)
-
-    load_model()
-
-    if PBMODEL is None:
-        # Reshape input tensor
-        INTERPRETER.resize_tensor_input(INPUT_LAYER_INDEX, [len(sample), *sample[0].shape])
-        INTERPRETER.allocate_tensors()
-
-        # Make a prediction (Audio only for now)
-        INTERPRETER.set_tensor(INPUT_LAYER_INDEX, np.array(sample, dtype="float32"))
-        INTERPRETER.invoke()
-        return INTERPRETER.get_tensor(OUTPUT_LAYER_INDEX)
-
-    # Make a prediction (Audio only for now)
-    return PBMODEL.basic(sample)["scores"]
-
-
-def predict_with_custom_classifier(sample):
-    """Uses the custom classifier to make a prediction.
-
-    Args:
-        sample: Audio sample.
-
-    Returns:
-        The prediction scores for the sample.
-    """
-    global _LAST_CUSTOM_CLASSIFIER_PATH
-
-    # Check if interpreter needs loading (first time or path changed)
-    if (C_INTERPRETER is None and C_PBMODEL is None) or _LAST_CUSTOM_CLASSIFIER_PATH != cfg.CUSTOM_CLASSIFIER:
-        if _LAST_CUSTOM_CLASSIFIER_PATH is not None:
-            logging.info(f"Reloading custom classifier: {_LAST_CUSTOM_CLASSIFIER_PATH} -> {cfg.CUSTOM_CLASSIFIER}")
-        _LAST_CUSTOM_CLASSIFIER_PATH = cfg.CUSTOM_CLASSIFIER
-        load_custom_classifier()
-
-    if C_PBMODEL is None:
-        vector = embeddings(sample) if C_INPUT_SIZE != 144000 else sample
-
-        # Reshape input tensor
-        C_INTERPRETER.resize_tensor_input(C_INPUT_LAYER_INDEX, [len(vector), *vector[0].shape])
-        C_INTERPRETER.allocate_tensors()
-
-        # Make a prediction
-        C_INTERPRETER.set_tensor(C_INPUT_LAYER_INDEX, np.array(vector, dtype="float32"))
-        C_INTERPRETER.invoke()
-
-        return C_INTERPRETER.get_tensor(C_OUTPUT_LAYER_INDEX)
-
-    return C_PBMODEL.basic(sample)["scores"]
-
-
-def embeddings(sample):
-    """Extracts the embeddings for a sample.
-
-    Args:
-        sample: Audio samples.
-
-    Returns:
-        The embeddings.
-    """
-    load_model(False)
-
-    sample = np.array(sample, dtype="float32")
-
-    # Reshape input tensor
-    INTERPRETER.resize_tensor_input(INPUT_LAYER_INDEX, [len(sample), *sample[0].shape])
-    INTERPRETER.allocate_tensors()
-
-    # Extract feature embeddings
-    INTERPRETER.set_tensor(INPUT_LAYER_INDEX, sample)
-    INTERPRETER.invoke()
-
-    return INTERPRETER.get_tensor(OUTPUT_LAYER_INDEX)
