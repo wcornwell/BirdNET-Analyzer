@@ -64,14 +64,15 @@ def custom_classes(labels_path: Path | None, library_dir: Path) -> list[str]:
 
 def latest_global_codes_file() -> Path:
     """Prefer the newest eBird_taxonomy_codes_*.json present (edition-agnostic)."""
-    candidates = sorted((REPO_ROOT / "birdnet_analyzer").glob("eBird_taxonomy_codes_*.json"))
+    codes_dir = REPO_ROOT / "birdnet_analyzer"
+    candidates = sorted(codes_dir.glob("eBird_taxonomy_codes_*.json"))
     return candidates[-1] if candidates else GLOBAL_CODES_FILE
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labels", type=Path, default=None,
-                        help="Custom model Labels.txt (default: live reallybig folder names)")
+                        help="Custom Labels.txt (default: live reallybig folder names)")
     parser.add_argument("--library-dir", type=Path, default=DEFAULT_LIBRARY_DIR)
     parser.add_argument("--global-codes", type=Path, default=None,
                         help="Global model eBird codes JSON (default: newest present)")
@@ -104,9 +105,9 @@ def main():
             r = ebird_by_sci.get(sci)
             code = r["speciesCode"] if r else None
         if not code:
-            continue  # not an eBird taxon (frog/insect/mammal) -> not part of the bird bridge
+            continue  # non-bird taxon (frog/insect/mammal); outside the bird bridge
 
-        global_label = global_codes.get(code)  # reverse lookup (JSON is bidirectional)
+        global_label = global_codes.get(code)  # reverse lookup (JSON bidirectional)
         if global_label == label:
             status = "same_label"
         elif global_label:
@@ -123,7 +124,9 @@ def main():
         })
 
     with args.output.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["custom_class", "ebird_code", "global_label", "status"])
+        writer = csv.DictWriter(
+            f, fieldnames=["custom_class", "ebird_code", "global_label", "status"]
+        )
         writer.writeheader()
         writer.writerows(sorted(rows, key=lambda r: r["custom_class"]))
 

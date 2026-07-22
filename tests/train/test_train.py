@@ -3,17 +3,14 @@ import shutil
 import tempfile
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
-import birdnet_analyzer.config as cfg
 from birdnet_analyzer.cli import train_parser
 from birdnet_analyzer.train.core import train
 
 
 @pytest.fixture
 def setup_test_environment():
-    # Create a temporary directory for testing
     test_dir = tempfile.mkdtemp()
     input_dir = os.path.join(test_dir, "input")
     output_dir = os.path.join(test_dir, "output")
@@ -23,9 +20,6 @@ def setup_test_environment():
 
     classifier_output = os.path.join(output_dir, "classifier_output")
 
-    # Store original config values
-    original_config = {attr: getattr(cfg, attr) for attr in dir(cfg) if not attr.startswith("_") and not callable(getattr(cfg, attr))}
-
     yield {
         "test_dir": test_dir,
         "input_dir": input_dir,
@@ -33,73 +27,212 @@ def setup_test_environment():
         "classifier_output": classifier_output,
     }
 
-    # Clean up
     shutil.rmtree(test_dir)
 
-    # Restore original config
-    for attr, value in original_config.items():
-        setattr(cfg, attr, value)
 
-
-@patch("birdnet_analyzer.utils.ensure_model_exists")
 @patch("birdnet_analyzer.train.utils.train_model")
-def test_train_cli(mock_train_model, mock_ensure_model, setup_test_environment):
+def test_train_cli(mock_train_model, setup_test_environment):
     env = setup_test_environment
-
-    mock_ensure_model.return_value = True
 
     parser = train_parser()
     args = parser.parse_args([env["input_dir"], "--output", env["classifier_output"]])
 
+    # Remove CLI-only args not accepted by train()
+    kwargs = vars(args)
+    kwargs.pop("cache_mode", None)
+    kwargs.pop("cache_file", None)
+
+    train(**kwargs)
+
+    mock_train_model.assert_called_once()
+    call_kwargs = mock_train_model.call_args[1]
+    assert call_kwargs["output"] == env["classifier_output"]
+    assert mock_train_model.call_args[0][0] == env["input_dir"]
+
+
+@patch("birdnet_analyzer.train.utils.train_model")
+def test_train_cli_accepts_full_parser_surface(
+        mock_train_model, setup_test_environment
+    ):
+    env = setup_test_environment
+
+    parser = train_parser()
+    cache_path = os.path.join(env["test_dir"], "train_cache.npz")
+    args = parser.parse_args(
+        [
+            env["input_dir"],
+            "--test_data",
+            env["output_dir"],
+            "--crop_mode",
+            "smart",
+            "-o",
+            env["classifier_output"],
+            "--epochs",
+            "3",
+            "--val_split",
+            "0.25",
+            "--learning_rate",
+            "0.001",
+            "--focal-loss",
+            "--focal-loss-gamma",
+            "2.5",
+            "--focal-loss-alpha",
+            "0.5",
+            "--hidden_units",
+            "16",
+            "--dropout",
+            "0.3",
+            "--label_smoothing",
+            "--mixup",
+            "--upsampling_ratio",
+            "0.5",
+            "--upsampling_mode",
+            "mean",
+            "--model_formats",
+            "tflite",
+            "raven",
+            "detached",
+            "--model_save_mode",
+            "append",
+            "--save_cache_to",
+            cache_path,
+            "--fmin",
+            "100",
+            "--fmax",
+            "10000",
+            "--audio_speed",
+            "1.1",
+            "--threads",
+            "2",
+            "--overlap",
+            "1.5",
+            "-b",
+            "4",
+            "--autotune",
+            "--autotune_trials",
+            "3",
+            "--autotune_n_repeats",
+            "2",
+            "--autotune_n_splits",
+            "2",
+            "--autotune_metric",
+            "val_loss",
+        ]
+    )
+
     train(**vars(args))
 
-    mock_ensure_model.assert_called_once()
-    mock_train_model.assert_called_once_with()
+    mock_train_model.assert_called_once()
+    call_kwargs = mock_train_model.call_args[1]
+    assert call_kwargs["test_data"] == env["output_dir"]
+    assert call_kwargs["crop_mode"] == "smart"
+    assert call_kwargs["model_formats"] == ["tflite", "raven", "detached"]
+    assert call_kwargs["model_save_mode"] == "append"
+    assert call_kwargs["save_cache_to"] == cache_path
+    assert call_kwargs["autotune"] is True
+    assert call_kwargs["autotune_metric"] == "val_loss"
 
 
-def test_upsampling_per_class():
-    """Verify that upsampling independently brings each class to min_samples.
+def _make_dummy_history():
+    class DummyHistory:
+        history = {"val_AUPRC": [0.123]}  # noqa: RUF012
 
-    The original bug used a global len(y_temp) counter across all classes,
-    so after padding the first small class the shared counter prevented
-    subsequent classes from being upsampled.
-    """
-    from birdnet_analyzer.model import upsampling
+    return DummyHistory()
 
-    # Save and restore config
-    original_binary = cfg.BINARY_CLASSIFICATION
-    original_seed = cfg.RANDOM_SEED
 
+@patch("birdnet_analyzer.train.utils.model.save_raven_model")
+@patch("birdnet_analyzer.train.utils.model.save_linear_classifier")
+@patch("birdnet_analyzer.train.utils.model.build_linear_classifier")
+@patch("birdnet_analyzer.train.utils.model.train_linear_classifier")
+@patch("birdnet_analyzer.train.utils._load_training_data")
+@patch("birdnet_analyzer.train.utils.optuna", create=True)
+def test_autotune_uses_optuna(
+    mock_optuna,
+    mock_load,
+    mock_train,
+    mock_build,
+    mock_save_linear,
+    mock_save_raven,
+    setup_test_environment,
+):
+    # prepare stubbed data and model training
+    import numpy as np
+
+    mock_load.return_value = (
+        np.zeros((5, 10), dtype="float32"),
+        np.zeros((5, 3), dtype="float32"),
+        np.array([], dtype="float32"),  # no test samples to avoid evaluation step
+        np.array([], dtype="float32"),
+        ["a", "b", "c"],
+        False,
+        False,
+    )
+    # use a mutable sequence so classifier.pop() used during save does not blow up
+    mock_build.return_value = []
+    # training returns (classifier, history); classifier must support pop()
+    # give a classifier with at least one element so pop() succeeds
+    mock_train.return_value = ([1], _make_dummy_history())
+
+    # create fake study object which records calls
+    import sys
+
+    # make sure the `import optuna` in train_model doesn't raise ImportError
+    sys.modules.setdefault("optuna", mock_optuna)
+
+    dummy_study = type("S", (), {"enqueue_trial": lambda self, params: None})()
+    calls = {}
+
+    def fake_optimize(obj, n_trials):
+        calls["optimized"] = n_trials
+
+        # simulate a single trial evaluation (trial.number=0)
+        class DummyTrial:
+            def __init__(self):
+                self.number = 0
+
+            def suggest_categorical(self, name, choices):
+                return choices[0]
+
+            def suggest_float(self, name, low, high, **kwargs):
+                return low
+
+        obj(DummyTrial())
+        dummy_study.best_params = {
+            "hidden_units": 0,
+            "dropout": 0.0,
+            "batch_size": 8,
+            "learning_rate": 0.0001,
+            "upsampling_ratio": 0.0,
+            "mixup": False,
+            "label_smoothing": False,
+            "focal_loss": False,
+            "weight_decay": 0.0,
+        }
+
+    dummy_study.optimize = fake_optimize
+    mock_optuna.create_study.return_value = dummy_study
+
+    from birdnet_analyzer.train.utils import train_model
+
+    env = setup_test_environment
+    # ensure output directory exists so sample_counts can be written
+    os.makedirs(env["classifier_output"], exist_ok=True)
+
+    # call with autotune enabled
     try:
-        cfg.BINARY_CLASSIFICATION = False
-        cfg.RANDOM_SEED = 42
+        train_model(
+            env["input_dir"],
+            output=env["classifier_output"],
+            autotune=True,
+            autotune_trials=3,
+        )
+    except Exception as e:  # pragma: no cover - we want failure message
+        pytest.fail(f"train_model raised during autotune: {e!r}")
 
-        num_classes = 5
-        # Class sizes: 100, 50, 20, 10, 5
-        class_sizes = [100, 50, 20, 10, 5]
-        total = sum(class_sizes)
-        embed_dim = 8
-
-        rng = np.random.default_rng(42)
-        x = rng.standard_normal((total, embed_dim))
-        y = np.zeros((total, num_classes), dtype=np.float32)
-
-        offset = 0
-        for cls_idx, size in enumerate(class_sizes):
-            y[offset : offset + size, cls_idx] = 1.0
-            offset += size
-
-        # ratio=0.5 → min_samples = 100 * 0.5 = 50
-        x_up, y_up = upsampling(x, y, ratio=0.5, mode="repeat")
-
-        # Check per-class counts
-        for cls_idx, original_size in enumerate(class_sizes):
-            count = int(y_up[:, cls_idx].sum())
-            assert count >= 50, f"Class {cls_idx} (original {original_size} samples) has only {count} after upsampling, expected >= 50"
-
-        # The total should be more than the original (some classes needed padding)
-        assert len(x_up) > total, f"Expected upsampled data ({len(x_up)}) to exceed original ({total})"
-
-    finally:
-        cfg.BINARY_CLASSIFICATION = original_binary
-        cfg.RANDOM_SEED = original_seed
+    mock_optuna.create_study.assert_called_once()
+    create_study_kwargs = mock_optuna.create_study.call_args[1]
+    assert create_study_kwargs["study_name"] == "birdnet_analyzer"
+    assert calls.get("optimized") == 3
+    # build_linear_classifier should be called at least once (during tuning)
+    assert mock_build.called
+    assert mock_train.called

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Train a pelican recognizer on the reallybig call library.
 #
+# BRANCH NOTE: this is the `refactor-to-main-trial` port of main's train_pelican.sh.
+# It runs on the birdnet-library training loader (upstream refactor + #939 speedup),
+# not main's TFLite pipeline. Flags and hyperparameters are identical to main's version
+# so the two produce comparable models for the Phase 4 A/B (see CLAUDE.md testing plan).
+# Embeddings are still extracted inline from the reallybig folder (no cache step); the
+# refactor's cache path only triggers when INPUT is a cache file.
+#
 # Usage:
 #   ./train_pelican.sh pelican0-10
 #   ./train_pelican.sh pelican0-10 --epochs 100        (pass extra flags after name)
@@ -92,6 +99,7 @@ done
 echo "Training: $NAME"
 echo "Data:     $TRAIN_DATA"
 echo "Output:   $OUTPUT_DIR/$NAME"
+echo "Loader:   birdnet-library (refactor + #939)   [branch: refactor-to-main-trial]"
 if $USER_SET_PREFIXES; then
     echo "Helpers:  per explicit --non_event_prefixes"
 elif $HELPERS_AS_NONEVENTS; then
@@ -105,7 +113,10 @@ else
 fi
 echo ""
 
-"$VENV" -m birdnet_analyzer.train "$TRAIN_DATA" \
+# Launched via train_tf_first.py (not `-m birdnet_analyzer.train`) so TensorFlow binds
+# its absl before the birdnet-library loader imports PyArrow — without this the trainer
+# deadlocks at epoch 1 on macOS (see train_tf_first.py / CLAUDE.md).
+"$VENV" "$(dirname "$0")/train_tf_first.py" "$TRAIN_DATA" \
     -o "$OUTPUT_DIR/$NAME" \
     --hidden_units 2048 \
     --dropout 0.25 \

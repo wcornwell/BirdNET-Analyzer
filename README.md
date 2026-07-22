@@ -7,97 +7,42 @@
 <br>
 <div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![License](https://img.shields.io/github/license/birdnet-team/BirdNET-Analyzer)
 ![OS](https://badgen.net/badge/OS/Linux%2C%20Windows%2C%20macOS/blue)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+![Species](https://badgen.net/badge/Species/6512/blue)
+![Downloads](https://www-user.tu-chemnitz.de/~johau/birdnet_total_downloads_badge.php)
+
+[![Docker](https://github.com/birdnet-team/BirdNET-Analyzer/actions/workflows/docker-build.yml/badge.svg)](https://github.com/birdnet-team/BirdNET-Analyzer/actions/workflows/docker-build.yml)
+[![Reddit](https://img.shields.io/badge/Reddit-FF4500?style=flat&logo=reddit&logoColor=white)](https://www.reddit.com/r/BirdNET_Analyzer/)
+![GitHub stars)](https://img.shields.io/github/stars/birdnet-team/BirdNET-Analyzer)
+
+[![GitHub release](https://img.shields.io/github/v/release/birdnet-team/BirdNET-Analyzer)](https://github.com/birdnet-team/BirdNET-Analyzer/releases/latest)
+[![PyPI - Version](https://img.shields.io/pypi/v/birdnet_analyzer?logo=pypi)](https://pypi.org/project/birdnet-analyzer/)
+
+[![Sponsor](https://img.shields.io/badge/Support%20our%20work-8A2BE2?logo=data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjE2IiB2aWV3Qm94PSIwIDAgMTYgMTYiIHZlcnNpb249IjEuMSIgd2lkdGg9IjE2IiBkYXRhLXZpZXctY29tcG9uZW50PSJ0cnVlIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPg0KICAgIDxwYXRoIGQ9Im04IDE0LjI1LjM0NS42NjZhLjc1Ljc1IDAgMCAxLS42OSAwbC0uMDA4LS4wMDQtLjAxOC0uMDFhNy4xNTIgNy4xNTIgMCAwIDEtLjMxLS4xNyAyMi4wNTUgMjIuMDU1IDAgMCAxLTMuNDM0LTIuNDE0QzIuMDQ1IDEwLjczMSAwIDguMzUgMCA1LjUgMCAyLjgzNiAyLjA4NiAxIDQuMjUgMSA1Ljc5NyAxIDcuMTUzIDEuODAyIDggMy4wMiA4Ljg0NyAxLjgwMiAxMC4yMDMgMSAxMS43NSAxIDEzLjkxNCAxIDE2IDIuODM2IDE2IDUuNWMwIDIuODUtMi4wNDUgNS4yMzEtMy44ODUgNi44MThhMjIuMDY2IDIyLjA2NiAwIDAgMS0zLjc0NCAyLjU4NGwtLjAxOC4wMS0uMDA2LjAwM2gtLjAwMlpNNC4yNSAyLjVjLTEuMzM2IDAtMi43NSAxLjE2NC0yLjc1IDMgMCAyLjE1IDEuNTggNC4xNDQgMy4zNjUgNS42ODJBMjAuNTggMjAuNTggMCAwIDAgOCAxMy4zOTNhMjAuNTggMjAuNTggMCAwIDAgMy4xMzUtMi4yMTFDMTIuOTIgOS42NDQgMTQuNSA3LjY1IDE0LjUgNS41YzAtMS44MzYtMS40MTQtMy0yLjc1LTMtMS4zNzMgMC0yLjYwOS45ODYtMy4wMjkgMi40NTZhLjc0OS43NDkgMCAwIDEtMS40NDIgMEM2Ljg1OSAzLjQ4NiA1LjYyMyAyLjUgNC4yNSAyLjVaIj48L3BhdGg+DQo8L3N2Zz4=)](https://give.birds.cornell.edu/page/132162/donate/1)
 
 </div>
 
 ---
 
-> **⚠ Fork Notice** — this is a research fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer). This README covers only what the fork adds; for installation, full documentation, the GUI, and model downloads, see the [upstream project](https://github.com/birdnet-team/BirdNET-Analyzer).
-
-## About this fork
-
-A research fork of BirdNET-Analyzer focused on **training and inspecting custom
-classifiers**. Where upstream ships a general-purpose bird model, this fork adds the
-pieces you need to build your own recognizer from a local clip library and to judge how
-well it separates classes — per-class validation metrics, fixes and reporting for class
-upsampling, and embedding extraction for inspecting the feature space (see
-[What's different from upstream](#whats-different-from-upstream) below).
-
-It is used here to train the Australian-fauna **"pelican" recognizer series**, and the
-`main` branch deliberately keeps the fast **TFLite-based** embedding pipeline
-(~40 clips/sec) rather than upstream's `birdnet`-library refactor.
-
-Downstream embedding **analysis and visualisation** (taxonomic categorisation, UMAP/PCA/t-SNE
-reduction, misclassification detection, centroid plots) lives in the companion R package
-[`birdnetEmbed`](https://github.com/traitecoevo/birdnetEmbed), which consumes the `.npz`/`.csv`
-files produced here. The seam is deliberate: extraction here, analysis there.
-
-### What's different from upstream
-
-1. **Per-class validation metrics** — after training a custom classifier, per-class precision and recall are computed on the validation set; the worst-10 classes are printed and a full `_validation_metrics.csv` is written alongside the model. ([diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/f41b970))
-2. **Upsampling bug fix** — `upsample_core` used a shared global counter (`len(y_temp)`) that prevented minority classes after the first from being upsampled; the fix uses a per-class counter. ([diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/e8f7e80))
-3. **Upsampling summary** — the upsampling step prints a human-readable summary (reference class, target sample count, classes needing upsampling, 5 smallest classes by name).
-4. **macOS TF XLA deadlock fix** — `TF_XLA_FLAGS` etc. set before TensorFlow imports in `model.py` to avoid a deadlock when TF initialises alongside PyArrow/tqdm.
-
-### Where the pieces are
-
-| Area | Location |
-|------|----------|
-| Train a recognizer (TFLite pipeline) | [`train_pelican.sh`](train_pelican.sh) → `birdnet_analyzer.train` |
-| Embedding **extraction** | [`embedding_analysis/`](embedding_analysis/) (this repo) |
-| Embedding **analysis / plots** | [`birdnetEmbed`](https://github.com/traitecoevo/birdnetEmbed) R package |
-| Recognizer outputs (`.tflite`, labels, metrics) | OneDrive `call_library/recognizers/` |
-
-### Training a custom classifier
-
-Point the trainer at a folder whose subfolders are the class labels (one per species/call
-type); each subfolder holds that class's audio clips:
-
-```bash
-.venv/bin/python -m birdnet_analyzer.train /path/to/clip-library \
-    -o my-classifier.tflite \
-    --epochs 50 --hidden_units 2048 --dropout 0.25 \
-    --upsampling_mode repeat --upsampling_ratio 0.4
-```
-
-Alongside `my-classifier.tflite` the fork also writes `my-classifier_validation_metrics.csv`
-(per-class precision/recall) and prints the worst-performing classes and an upsampling
-summary — see [What's different from upstream](#whats-different-from-upstream).
-
-### Embedding extraction (`embedding_analysis/`)
-
-| Script | Purpose |
-|--------|---------|
-| `extract_embeddings.py` | Extract TFLite embeddings + per-class centroids from a clip library → `*_embeddings.npz`, `*_centroids.csv` |
-| `identify_misclassifications.py` | Find clips closer to another class's centroid than their own (also in `birdnetEmbed`) |
-| `npz_to_cache.py` | Convert per-species `.npz` to a flat training cache |
-
-```bash
-# extract embeddings for a model (once per model)
-.venv/bin/python embedding_analysis/extract_embeddings.py \
-    --model /path/to/recognizers/pelican0-10.tflite \
-    --input /path/to/call_library/reallybig \
-    --output embedding_analysis/reallybig_pelican0-10
-```
-
-The resulting `.npz`/`.csv` are then fed to [`birdnetEmbed`](https://github.com/traitecoevo/birdnetEmbed)
-for categorisation (galah/ALA taxonomy + manual overrides), dimensionality reduction, and
-the categorised centroid plot — see that package's README.
+> **⚠ Fork Notice**
+>
+> This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer). It contains three changes to the main branch:
+>
+> 1. **Per-class validation metrics** — After training a custom classifier, per-class precision and recall are computed on the validation set. The worst-10 classes by precision and recall are printed, and a full `_validation_metrics.csv` is written alongside the model output. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/f41b970))
+>
+> 2. **Upsampling bug fix** — The `upsample_core` function used a shared global counter (`len(y_temp)`) across all classes. After upsampling the first underrepresented class, the inflated counter prevented subsequent minority classes from being upsampled. The fix uses a per-class counter so each class is independently brought up to `min_samples`. ([view diff](https://github.com/wcornwell/BirdNET-Analyzer/commit/e8f7e80))
+>
+> 3. **Upsampling summary with label names** — During training, the upsampling step now prints a human-readable summary showing the reference class name, the target sample count, how many classes need upsampling, and the 5 smallest classes by name. This replaces numeric indices with actual species/label names throughout the output.
 
 ---
 
-## Upstream BirdNET-Analyzer
+This repo contains BirdNET scripts for processing large amounts of audio data or single audio files.
+This is the most advanced version of BirdNET for acoustic analyses and we will keep this repository up-to-date with new models and improved interfaces to enable scientists with no CS background to run the analysis.
 
-This fork is built on the upstream project, developed by the [K. Lisa Yang Center for Conservation Bioacoustics](https://www.birds.cornell.edu/ccb/) at the Cornell Lab of Ornithology with Chemnitz University of Technology. For installation, full documentation, the GUI, and pre-trained models, see upstream:
-
-- **Repository**: <https://github.com/birdnet-team/BirdNET-Analyzer>
-- **Documentation**: <https://birdnet-team.github.io/BirdNET-Analyzer/>
-- **Models** (Zenodo): <https://zenodo.org/records/15050749>
-
-If you use BirdNET in your research, please cite:
+Feel free to use BirdNET for your acoustic analyses and research.
+If you do, please cite as:
 
 ```bibtex
 @article{kahl2021birdnet,
@@ -111,7 +56,44 @@ If you use BirdNET in your research, please cite:
 }
 ```
 
+## Documentation
+
+You can access documentation for this project [here](https://birdnet-team.github.io/BirdNET-Analyzer/).
+
+## Download
+
+You can download installers for Windows and macOS from the [releases page](https://github.com/birdnet-team/BirdNET-Analyzer/releases/latest).
+Models can be found on [Zenodo](https://zenodo.org/records/15050749).
+
+## About
+
+Developed by the [K. Lisa Yang Center for Conservation Bioacoustics](https://www.birds.cornell.edu/ccb/) at the [Cornell Lab of Ornithology](https://www.birds.cornell.edu/home) in collaboration with [Chemnitz University of Technology](https://www.tu-chemnitz.de/index.html.en).
+
+Go to https://birdnet.cornell.edu to learn more about the project.
+
+Want to use BirdNET to analyze a large dataset? Don't hesitate to contact us: ccb-birdnet@cornell.edu
+
+**Have a question, remark, or feature request? Please start a new issue thread to let us know. Feel free to submit a pull request.**
+
 ## License
 
-- **Source code**: [MIT License](https://opensource.org/licenses/MIT)
-- **Models**: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — all educational and research use counts as non-commercial.
+- **Source Code**: The source code for this project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+- **Models**: The models used in this project are licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0)](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+Please ensure you review and adhere to the specific license terms provided with each model.
+
+*Please note that all educational and research purposes are considered non-commercial use and it is therefore freely permitted to use BirdNET models in any way.*
+
+## Funding
+
+Our work in the K. Lisa Yang Center for Conservation Bioacoustics is made possible by the generosity of K. Lisa Yang to advance innovative conservation technologies to inspire and inform the conservation of wildlife and habitats.
+
+The development of BirdNET is supported by the German Federal Ministry of Research, Technology and Space (FKZ 01|S22072), the German Federal Ministry for the Environment, Climate Action, Nature Conservation and Nuclear Safety (FKZ 67KI31040E), the German Federal Ministry of Economic Affairs and Energy (FKZ 16KN095550), the Deutsche Bundesstiftung Umwelt (project 39263/01) and the European Social Fund.
+
+## Partners
+
+BirdNET is a joint effort of partners from academia and industry.
+Without these partnerships, this project would not have been possible.
+Thank you!
+
+![Logos of all partners](https://tuc.cloud/index.php/s/KSdWfX5CnSRpRgQ/download/box_logos.png)

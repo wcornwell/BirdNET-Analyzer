@@ -79,8 +79,11 @@ def main():
 
     old_codes_file = latest_codes_file()
     old_codes = json.loads(old_codes_file.read_text()) if old_codes_file else {}
-    print(f"Diffing against: {old_codes_file.name if old_codes_file else '(none present)'}")
-    labels = [line.strip() for line in LABELS_FILE.read_text().splitlines() if line.strip()]
+    against = old_codes_file.name if old_codes_file else "(none present)"
+    print(f"Diffing against: {against}")
+    labels = [
+        line.strip() for line in LABELS_FILE.read_text().splitlines() if line.strip()
+    ]
     print(f"{len(labels)} labels in the frozen model label file.")
 
     new_codes = {}
@@ -108,16 +111,19 @@ def main():
         new_codes[new_code] = label
 
         if match_method == "sciname" and new_code != old_code:
-            drift.append((label, sci, common, row["sciName"], row["comName"], old_code, new_code, "code changed"))
+            drift.append((label, sci, common, row["sciName"], row["comName"],
+                          old_code, new_code, "code changed"))
         elif row["sciName"] != sci or row["comName"] != common:
-            drift.append((label, sci, common, row["sciName"], row["comName"], old_code, new_code, "name changed upstream"))
+            drift.append((label, sci, common, row["sciName"], row["comName"],
+                          old_code, new_code, "name changed upstream"))
 
     new_codes_file.write_text(json.dumps(new_codes, indent=2, ensure_ascii=False))
     print(f"Wrote {new_codes_file.name} ({len(labels)} labels, all preserved as-is).")
 
     config_text = CONFIG_FILE.read_text()
     updated_config = re.sub(
-        r'CODES_FILE: str = os\.path\.join\(SCRIPT_DIR, "eBird_taxonomy_codes_\S+\.json"\)',
+        r'CODES_FILE: str = os\.path\.join\(SCRIPT_DIR, '
+        r'"eBird_taxonomy_codes_\S+\.json"\)',
         f'CODES_FILE: str = os.path.join(SCRIPT_DIR, "{new_codes_file.name}")',
         config_text,
     )
@@ -127,15 +133,21 @@ def main():
         updated_config,
     )
     CONFIG_FILE.write_text(updated_config)
-    print(f"Updated {CONFIG_FILE.relative_to(REPO_ROOT)} to point at {new_codes_file.name}.")
+    rel = CONFIG_FILE.relative_to(REPO_ROOT)
+    print(f"Updated {rel} to point at {new_codes_file.name}.")
 
     if drift:
         with DRIFT_REPORT.open("w") as f:
-            f.write("label,old_sciname,old_comname,new_sciname,new_comname,old_code,new_code,reason\n")
-            for label, sci, common, new_sci, new_common, old_code, new_code, reason in drift:
-                f.write(f'"{label}","{sci}","{common}","{new_sci}","{new_common}","{old_code}","{new_code}","{reason}"\n')
-        print(f"\n{len(drift)} label(s) have drifted from the current eBird taxonomy (label file left untouched):")
-        for _label, sci, common, new_sci, new_common, _old_code, _new_code, reason in drift[:20]:
+            f.write("label,old_sciname,old_comname,new_sciname,new_comname,"
+                    "old_code,new_code,reason\n")
+            for (label, sci, common, new_sci, new_common,
+                 old_code, new_code, reason) in drift:
+                f.write(f'"{label}","{sci}","{common}","{new_sci}","{new_common}",'
+                        f'"{old_code}","{new_code}","{reason}"\n')
+        print(f"\n{len(drift)} label(s) have drifted from the current eBird "
+              "taxonomy (label file left untouched):")
+        for (_label, sci, common, new_sci,
+             new_common, _old_code, _new_code, reason) in drift[:20]:
             print(f"  [{reason}] {sci} {common!r} -> {new_sci} {new_common!r}")
         if len(drift) > 20:
             print(f"  ... and {len(drift) - 20} more, see {DRIFT_REPORT.name}")
@@ -143,7 +155,8 @@ def main():
         print("\nNo drift — every label still matches its current eBird name.")
 
     if unresolved:
-        print(f"\n{len(unresolved)} label(s) had no match at all in the new taxonomy (code kept as-is, needs manual check):")
+        print(f"\n{len(unresolved)} label(s) had no match at all in the new "
+              "taxonomy (code kept as-is, needs manual check):")
         for label in unresolved:
             print(f"  {label}")
 

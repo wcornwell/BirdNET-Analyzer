@@ -171,10 +171,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Embedding analysis outputs (data files only; scripts are tracked)
-embedding_analysis/*.npz
-embedding_analysis/*.csv
-embedding_analysis/*.txt
+# Embedding analysis outputs
+embedding_analysis/
 nature_sounds/
 human_sounds/   
 recognizers/
@@ -189,6 +187,3 @@ BirdNET_analysis_params.csv
 
 # Build files
 entitlements.plist
-
-# Local-only project notes for Claude (not for upstream)
-CLAUDE.md
