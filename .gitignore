@@ -187,3 +187,7 @@ BirdNET_analysis_params.csv
 
 # Build files
 entitlements.plist
+# Generated training artifacts (large caches, run outputs)
+train_caches/
+analysis_outputs/
+labeled_soundscape/
