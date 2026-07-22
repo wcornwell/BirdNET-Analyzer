@@ -13,7 +13,7 @@ RANDOM_SEED: int = 42
 MODEL_VERSION: str = "V2.4"
 SCORE_FUNCTIONS = Literal["cosine", "euclidean", "dot"]
 CROP_MODES = Literal["center", "first", "segments"]
-CODES_FILE: str = os.path.join(SCRIPT_DIR, "eBird_taxonomy_codes_2024E.json")
+CODES_FILE: str = os.path.join(SCRIPT_DIR, "eBird_taxonomy_codes_2025E.json")
 ALLOWED_FILETYPES: list[str] = [
     "wav",
     "flac",
