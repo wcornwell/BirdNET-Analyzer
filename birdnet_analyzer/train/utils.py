@@ -810,6 +810,10 @@ def train_model(
                 "Focal loss alpha": focal_loss_alpha,
                 "Upsampling mode": upsampling_mode,
                 "Upsampling ratio": upsampling_ratio,
+                # Which helper classes were trained as non-events. Recorded so a run's
+                # helper mode is recoverable from the params file (fork addition).
+                "Non-event prefixes": ", ".join(cfg.NON_EVENT_PREFIXES),
+                "Non-event keep classes": ", ".join(cfg.NON_EVENT_KEEP_CLASSES),
                 "BirdNET model version": "2.4",
             },
         )
