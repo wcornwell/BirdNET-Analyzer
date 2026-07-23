@@ -1,6 +1,7 @@
 # ruff: noqa: PLW0603
 import base64
 import io
+import logging
 import multiprocessing
 import os
 import platform
@@ -16,11 +17,14 @@ import webview
 from birdnet.globals import MODEL_LANGUAGE_EN_US, MODEL_LANGUAGES
 
 import birdnet_analyzer.gui.localization as loc
+import birdnet_analyzer.gui.state as gs
 from birdnet_analyzer import settings, utils
+from birdnet_analyzer.gui.state import TabState
 
 warnings.filterwarnings("ignore")
 loc.load_local_state()
 
+logger = logging.getLogger(__name__)
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 _CUSTOM_SPECIES = loc.localize("species-list-radio-option-custom-list")
 _PREDICT_SPECIES = loc.localize("species-list-radio-option-predict-list")
@@ -54,6 +58,70 @@ _SPECIES_KEYS = Literal[
     "map_plot",
 ]
 TAB_BUILDER_RESULT = tuple[gr.Component, gr.Component, gr.Component] | None
+
+_SETTINGS_TAB_ID = "settings"
+_SPECTROGRAM_COLORMAPS = ["viridis", "magma", "plasma", "inferno", "Greys", "jet"]
+_SPECTROGRAM_FFT_SIZES = [256, 512, 1024, 2048, 4096]
+_SPECTROGRAM_FREQ_SCALES = ["linear", "log"]
+_SPECTROGRAM_DEFAULTS = {
+    "spectrogram_colormap_dropdown": "viridis",
+    "spectrogram_fft_size_dropdown": 1024,
+    "spectrogram_overlap_slider": 50,
+    "spectrogram_dynamic_range_slider": 80,
+    "spectrogram_freq_scale_radio": "linear",
+}
+
+
+def spectrogram_settings() -> dict:
+    """Reads the spectrogram settings the user chose in the settings tab.
+
+    The values are read from disk at call time, so a change in the settings tab shows
+    in the next spectrogram that is drawn, without a restart.
+
+    Returns:
+        The keyword arguments for `utils.spectrogram_from_file` and
+        `utils.spectrogram_from_audio`.
+    """
+    state = TabState(_SETTINGS_TAB_ID)
+    defaults = _SPECTROGRAM_DEFAULTS
+    n_fft = cast(
+        "int",
+        state.get(
+            "spectrogram_fft_size_dropdown",
+            defaults["spectrogram_fft_size_dropdown"],
+            choices=_SPECTROGRAM_FFT_SIZES,
+        ),
+    )
+    overlap = cast(
+        "float",
+        state.get(
+            "spectrogram_overlap_slider",
+            defaults["spectrogram_overlap_slider"],
+            minimum=0,
+            maximum=90,
+        ),
+    )
+
+    return {
+        "n_fft": n_fft,
+        "hop_length": max(1, round(n_fft * (1 - overlap / 100))),
+        "colormap": state.get(
+            "spectrogram_colormap_dropdown",
+            defaults["spectrogram_colormap_dropdown"],
+            choices=_SPECTROGRAM_COLORMAPS,
+        ),
+        "top_db": state.get(
+            "spectrogram_dynamic_range_slider",
+            defaults["spectrogram_dynamic_range_slider"],
+            minimum=30,
+            maximum=120,
+        ),
+        "freq_scale": state.get(
+            "spectrogram_freq_scale_radio",
+            defaults["spectrogram_freq_scale_radio"],
+            choices=_SPECTROGRAM_FREQ_SCALES,
+        ),
+    }
 
 
 def gui_runtime_error_handler(f):
@@ -308,6 +376,116 @@ def build_settings():
                     scale=10,
                 )
 
+            state = TabState(_SETTINGS_TAB_ID)
+
+            with gr.Accordion(
+                loc.localize("settings-tab-spectrogram-accordion-label"), open=False
+            ):
+                gr.Markdown(loc.localize("settings-tab-spectrogram-info"))
+
+                with gr.Row():
+                    state.persist(
+                        "spectrogram_colormap_dropdown",
+                        gr.Dropdown,
+                        choices=[
+                            ("Viridis", "viridis"),
+                            ("Magma", "magma"),
+                            ("Plasma", "plasma"),
+                            ("Inferno", "inferno"),
+                            (
+                                loc.localize(
+                                    "settings-tab-spectrogram-colormap-grayscale-option"
+                                ),
+                                "Greys",
+                            ),
+                            ("Jet", "jet"),
+                        ],
+                        value=_SPECTROGRAM_DEFAULTS["spectrogram_colormap_dropdown"],
+                        label=loc.localize("settings-tab-spectrogram-colormap-label"),
+                        info=loc.localize("settings-tab-spectrogram-colormap-info"),
+                        interactive=True,
+                    )
+                    state.persist(
+                        "spectrogram_freq_scale_radio",
+                        gr.Radio,
+                        choices=[
+                            (
+                                loc.localize(
+                                    "settings-tab-spectrogram-freq-scale-linear-option"
+                                ),
+                                "linear",
+                            ),
+                            (
+                                loc.localize(
+                                    "settings-tab-spectrogram-freq-scale-log-option"
+                                ),
+                                "log",
+                            ),
+                        ],
+                        value=_SPECTROGRAM_DEFAULTS["spectrogram_freq_scale_radio"],
+                        label=loc.localize("settings-tab-spectrogram-freq-scale-label"),
+                        info=loc.localize("settings-tab-spectrogram-freq-scale-info"),
+                        interactive=True,
+                    )
+
+                with gr.Row():
+                    state.persist(
+                        "spectrogram_fft_size_dropdown",
+                        gr.Dropdown,
+                        choices=_SPECTROGRAM_FFT_SIZES,
+                        value=_SPECTROGRAM_DEFAULTS["spectrogram_fft_size_dropdown"],
+                        label=loc.localize("settings-tab-spectrogram-fft-size-label"),
+                        info=loc.localize("settings-tab-spectrogram-fft-size-info"),
+                        interactive=True,
+                    )
+                    state.persist(
+                        "spectrogram_overlap_slider",
+                        gr.Slider,
+                        minimum=0,
+                        maximum=90,
+                        step=5,
+                        value=_SPECTROGRAM_DEFAULTS["spectrogram_overlap_slider"],
+                        label=loc.localize("settings-tab-spectrogram-overlap-label"),
+                        info=loc.localize("settings-tab-spectrogram-overlap-info"),
+                        interactive=True,
+                    )
+                    state.persist(
+                        "spectrogram_dynamic_range_slider",
+                        gr.Slider,
+                        minimum=30,
+                        maximum=120,
+                        step=5,
+                        value=_SPECTROGRAM_DEFAULTS["spectrogram_dynamic_range_slider"],
+                        label=loc.localize(
+                            "settings-tab-spectrogram-dynamic-range-label"
+                        ),
+                        info=loc.localize(
+                            "settings-tab-spectrogram-dynamic-range-info"
+                        ),
+                        interactive=True,
+                    )
+
+            # Built last, so every tab has registered its settings by now.
+            persisted_components = gs.persisted_components()
+
+            if persisted_components:
+                with gr.Row():
+                    reset_settings_btn = gr.Button(
+                        loc.localize("settings-tab-reset-button-label"),
+                    )
+
+                def on_reset_click():
+                    updates = gs.reset_to_defaults()
+                    gr.Info(loc.localize("settings-tab-reset-info"))
+
+                    return updates
+
+                reset_settings_btn.click(
+                    on_reset_click,
+                    outputs=persisted_components,
+                    show_progress="hidden",
+                )
+
         gr.Markdown(
             """
             If you encounter a bug or error, please provide the error log.\n
@@ -355,28 +533,53 @@ def build_settings():
         settings_tab.select(on_tab_select, outputs=error_log_tb, show_progress="hidden")
 
 
-def sample_species_model_settings(opened=True):
-    sample_settings = sample_sliders(opened=opened)
-    species_settings = species_lists(opened=opened)
-    model_settings = model_selection(opened=opened)
+def model_choices():
+    """Returns the models that can be selected on the current platform."""
+    values = [_USE_BIRDNET_2_4, _CUSTOM_CLASSIFIER, _USE_PERCH]
 
-    def on_species_list_change(value):
+    if platform.system() == "Darwin":
+        values.pop()  # TODO: Remove when tf 2.21+ is available on macOS
+
+    return values
+
+
+def sample_species_model_settings(state: TabState, opened=True):
+    # The model decides which sample and species settings are available, so it has to
+    # be known before those are built, even though it is shown below them.
+    is_perch = (
+        state.get("model_selection_radio", _USE_BIRDNET_2_4, choices=model_choices())
+        == _USE_PERCH
+    )
+
+    sample_settings = sample_sliders(state, opened=opened, is_perch=is_perch)
+    species_settings = species_lists(state, opened=opened, is_perch=is_perch)
+    model_settings = model_selection(state, opened=opened)
+
+    def on_species_list_change(value, species_choice):
         is_perch = value == _USE_PERCH
+        choices = (
+            [_CUSTOM_SPECIES, _ALL_SPECIES]
+            if is_perch
+            else [_CUSTOM_SPECIES, _PREDICT_SPECIES, _ALL_SPECIES]
+        )
 
         return (
             gr.update(interactive=not is_perch),
             gr.update(maximum=4.9 if is_perch else 2.9),
+            # Keep the current species selection (e.g. the one a preset was just
+            # applied with) as long as the new model offers it.
             gr.update(
-                choices=[_CUSTOM_SPECIES, _ALL_SPECIES]
-                if is_perch
-                else [_CUSTOM_SPECIES, _PREDICT_SPECIES, _ALL_SPECIES],
-                value=_ALL_SPECIES,
+                choices=choices,
+                value=species_choice if species_choice in choices else _ALL_SPECIES,
             ),
         )
 
     model_settings["model_selection_radio"].change(
         on_species_list_change,
-        inputs=model_settings["model_selection_radio"],
+        inputs=[
+            model_settings["model_selection_radio"],
+            species_settings["species_list_radio"],
+        ],
         outputs=[
             sample_settings["sensitivity_slider"],
             sample_settings["overlap_slider"],
@@ -388,11 +591,15 @@ def sample_species_model_settings(opened=True):
     return sample_settings, species_settings, model_settings
 
 
-def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
+def sample_sliders(
+    state: TabState, opened=True, is_perch=False
+) -> dict[_SAMPLE_KEYS, gr.components.Component]:
     """Creates the gradio accordion for sample settings.
 
     Args:
+        state: The persisted settings of the tab the accordion belongs to.
         opened: If True the accordion is open on init.
+        is_perch: If True the settings are limited to what the Perch model supports.
     Returns:
         A dict with the created elements.
     """
@@ -402,24 +609,32 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
     ):
         with gr.Group():
             with gr.Row():
-                use_top_n_checkbox = gr.Checkbox(
+                use_top_n_checkbox = state.persist(
+                    "use_top_n_checkbox",
+                    gr.Checkbox,
                     label=loc.localize("inference-settings-use-top-n-checkbox-label"),
                     value=False,
                     info=loc.localize("inference-settings-use-top-n-checkbox-info"),
                 )
-                top_n_input = gr.Number(
+                use_top_n = bool(use_top_n_checkbox.value)
+                top_n_input = state.persist(
+                    "top_n_input",
+                    gr.Number,
                     value=5,
                     minimum=1,
                     precision=1,
-                    visible=False,
+                    visible=use_top_n,
                     label=loc.localize("inference-settings-top-n-number-label"),
                     info=loc.localize("inference-settings-top-n-number-info"),
                 )
-                confidence_slider = gr.Slider(
+                confidence_slider = state.persist(
+                    "confidence_slider",
+                    gr.Slider,
                     minimum=0.05,
                     maximum=0.95,
                     value=0.25,
                     step=0.05,
+                    visible=not use_top_n,
                     label=loc.localize("inference-settings-confidence-slider-label"),
                     info=loc.localize("inference-settings-confidence-slider-info"),
                 )
@@ -435,17 +650,22 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
             )
 
             with gr.Row():
-                sensitivity_slider = gr.Slider(
+                sensitivity_slider = state.persist(
+                    "sensitivity_slider",
+                    gr.Slider,
                     minimum=0.5,
                     maximum=1.5,
                     value=1.0,
                     step=0.01,
+                    interactive=not is_perch,
                     label=loc.localize("inference-settings-sensitivity-slider-label"),
                     info=loc.localize("inference-settings-sensitivity-slider-info"),
                 )
-                overlap_slider = gr.Slider(
+                overlap_slider = state.persist(
+                    "overlap_slider",
+                    gr.Slider,
                     minimum=0,
-                    maximum=2.9,
+                    maximum=4.9 if is_perch else 2.9,
                     value=0.0,
                     step=0.1,
                     label=loc.localize("inference-settings-overlap-slider-label"),
@@ -453,7 +673,9 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
                 )
 
             with gr.Row():
-                merge_consecutive_slider = gr.Slider(
+                merge_consecutive_slider = state.persist(
+                    "merge_consecutive_slider",
+                    gr.Slider,
                     minimum=1,
                     maximum=10,
                     value=1,
@@ -465,7 +687,9 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
                         "inference-settings-merge-consecutive-slider-info"
                     ),
                 )
-                audio_speed_slider = gr.Slider(
+                audio_speed_slider = state.persist(
+                    "audio_speed_slider",
+                    gr.Slider,
                     minimum=-10,
                     maximum=10,
                     value=0,
@@ -474,7 +698,7 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
                     info=loc.localize("inference-settings-audio-speed-slider-info"),
                 )
 
-            fmin_number, fmax_number = bandpass_settings()
+            fmin_number, fmax_number = bandpass_settings(state)
 
         return {
             "use_top_n_checkbox": use_top_n_checkbox,
@@ -489,17 +713,21 @@ def sample_sliders(opened=True) -> dict[_SAMPLE_KEYS, gr.components.Component]:
         }
 
 
-def bandpass_settings():
+def bandpass_settings(state: TabState):
     with gr.Row():
-        fmin_number = gr.Number(
-            0,
+        fmin_number = state.persist(
+            "fmin_number",
+            gr.Number,
+            value=0,
             minimum=0,
             label=loc.localize("inference-settings-fmin-number-label"),
             info=loc.localize("inference-settings-fmin-number-info"),
         )
 
-        fmax_number = gr.Number(
-            15000,
+        fmax_number = state.persist(
+            "fmax_number",
+            gr.Number,
+            value=15000,
             minimum=0,
             label=loc.localize("inference-settings-fmax-number-label"),
             info=loc.localize("inference-settings-fmax-number-info"),
@@ -508,19 +736,26 @@ def bandpass_settings():
     return fmin_number, fmax_number
 
 
-def locale():
+def locale(state: TabState, visible=True):
     """Creates the gradio elements for locale selection
 
     Reads the translated labels inside the checkpoints directory.
+
+    Args:
+        state: The persisted settings of the tab the dropdown belongs to.
+        visible: If True the dropdown is shown on init.
 
     Returns:
         The dropdown element.
     """
     options = get_args(MODEL_LANGUAGES)[0]
 
-    return gr.Dropdown(
-        get_args(options),
+    return state.persist(
+        "locale_dropdown",
+        gr.Dropdown,
+        choices=get_args(options),
         value=cast("str", MODEL_LANGUAGE_EN_US),
+        visible=visible,
         label=loc.localize("analyze-locale-dropdown-label"),
         info=loc.localize("analyze-locale-dropdown-info"),
     )
@@ -538,10 +773,12 @@ def plot_map_scatter_mapbox(lat, lon, zoom=4):
     return fig
 
 
-def species_list_coordinates(show_map=False):
+def species_list_coordinates(state: TabState, show_map=False):
     with gr.Row(equal_height=True):
         with gr.Column(scale=1), gr.Group():
-            lat_number = gr.Slider(
+            lat_number = state.persist(
+                "lat_number",
+                gr.Slider,
                 minimum=-90,
                 maximum=90,
                 value=0,
@@ -549,7 +786,9 @@ def species_list_coordinates(show_map=False):
                 label=loc.localize("species-list-coordinates-lat-number-label"),
                 info=loc.localize("species-list-coordinates-lat-number-info"),
             )
-            lon_number = gr.Slider(
+            lon_number = state.persist(
+                "lon_number",
+                gr.Slider,
                 minimum=-180,
                 maximum=180,
                 value=0,
@@ -559,7 +798,10 @@ def species_list_coordinates(show_map=False):
             )
 
         map_plot = gr.Plot(
-            plot_map_scatter_mapbox(0, 0), show_label=False, scale=2, visible=show_map
+            plot_map_scatter_mapbox(lat_number.value, lon_number.value),
+            show_label=False,
+            scale=2,
+            visible=show_map,
         )
 
         lat_number.change(
@@ -577,21 +819,27 @@ def species_list_coordinates(show_map=False):
 
     with gr.Group():
         with gr.Row():
-            yearlong_checkbox = gr.Checkbox(
-                True,
+            yearlong_checkbox = state.persist(
+                "yearlong_checkbox",
+                gr.Checkbox,
+                value=True,
                 label=loc.localize("species-list-coordinates-yearlong-checkbox-label"),
             )
-            week_number = gr.Slider(
+            week_number = state.persist(
+                "week_number",
+                gr.Slider,
                 minimum=1,
                 maximum=48,
                 value=1,
                 step=1,
-                interactive=False,
+                interactive=not yearlong_checkbox.value,
                 label=loc.localize("species-list-coordinates-week-slider-label"),
                 info=loc.localize("species-list-coordinates-week-slider-info"),
             )
 
-        sf_thresh_number = gr.Slider(
+        sf_thresh_number = state.persist(
+            "sf_thresh_number",
+            gr.Slider,
             minimum=0.01,
             maximum=0.99,
             value=0.03,
@@ -705,25 +953,25 @@ def show_species_choice(choice: str, file_input):
     ]
 
 
-def model_selection(opened=True):
+def model_selection(state: TabState, opened=True):
     with (
         gr.Group(),
         gr.Accordion(loc.localize("model-selection-accordion-label"), open=opened),
     ):
         with gr.Row():
-            values = [_USE_BIRDNET_2_4, _CUSTOM_CLASSIFIER, _USE_PERCH]
-
-            if platform.system() == "Darwin":
-                values.pop()  # TODO: Remove when tf 2.21+ is available on macOS
-
-            model_selection_radio = gr.Radio(
-                choices=values,
+            model_selection_radio = state.persist(
+                "model_selection_radio",
+                gr.Radio,
+                choices=model_choices(),
                 value=_USE_BIRDNET_2_4,
                 label=loc.localize("model-selection-radio-label"),
                 info=loc.localize("model-selection-radio-info"),
             )
+            selected_model = model_selection_radio.value
 
-            with gr.Column(visible=False) as custom_classifier_selector:
+            with gr.Column(
+                visible=selected_model == _CUSTOM_CLASSIFIER
+            ) as custom_classifier_selector:
                 classifier_selection_button = gr.Button(
                     loc.localize(
                         "species-list-custom-classifier-selection-button-label"
@@ -746,13 +994,9 @@ def model_selection(opened=True):
                     if not file:
                         return None, None, None
 
-                    base_name = os.path.splitext(file)[0]
-                    labels = base_name + "_Labels.txt"
+                    labels = utils.read_classifier_labels(file)
 
-                    if not os.path.isfile(labels):
-                        labels = file.replace("Model_FP32.tflite", "Labels.txt")
-
-                    if not os.path.isfile(labels):
+                    if labels is None:
                         gr.Warning(
                             loc.localize(
                                 "species-list-custom-classifier-no-labelfile-warning"
@@ -768,13 +1012,10 @@ def model_selection(opened=True):
                     return (
                         file,
                         gr.update(value=file, visible=True),
-                        gr.update(
-                            value=utils.read_lines(labels, fail_on_blank_lines=True),
-                            visible=True,
-                        ),
+                        gr.update(value=labels, visible=True),
                     )
 
-        locale_settings = locale()
+        locale_settings = locale(state, visible=selected_model == _USE_BIRDNET_2_4)
 
         species_list_df = gr.List(
             value=[],
@@ -814,14 +1055,20 @@ def model_selection(opened=True):
     return {
         "model_selection_radio": model_selection_radio,
         "selected_classifier_state": selected_classifier_state,
+        "classifier_file_input": classifier_file_input,
+        "classifier_labels_df": species_list_df,
         "locale_dropdown": locale_settings,
     }
 
 
-def species_lists(opened=True) -> dict[_SPECIES_KEYS, gr.components.Component]:
+def species_lists(
+    state: TabState, opened=True, is_perch=False
+) -> dict[_SPECIES_KEYS, gr.components.Component]:
     """Creates the gradio accordion for species list selection.
     Args:
+        state: The persisted settings of the tab the accordion belongs to.
         opened: If True the accordion is open on init.
+        is_perch: If True the choices are limited to what the Perch model supports.
     Returns:
         A dict with the created elements.
     """
@@ -830,17 +1077,26 @@ def species_lists(opened=True) -> dict[_SPECIES_KEYS, gr.components.Component]:
         gr.Accordion(loc.localize("species-list-accordion-label"), open=opened),
     ):
         with gr.Row():
-            values = [_ALL_SPECIES, _CUSTOM_SPECIES, _PREDICT_SPECIES]
+            values = (
+                [_CUSTOM_SPECIES, _ALL_SPECIES]
+                if is_perch
+                else [_ALL_SPECIES, _CUSTOM_SPECIES, _PREDICT_SPECIES]
+            )
 
-            species_list_radio = gr.Radio(
-                values,
+            species_list_radio = state.persist(
+                "species_list_radio",
+                gr.Radio,
+                choices=values,
                 value=_ALL_SPECIES,
                 label=loc.localize("species-list-radio-label"),
                 info=loc.localize("species-list-radio-info"),
                 elem_classes="d-block",
             )
+            selected_species_list = species_list_radio.value
 
-            with gr.Column(visible=False) as position_row:
+            with gr.Column(
+                visible=selected_species_list == _PREDICT_SPECIES
+            ) as position_row:
                 (
                     lat_number,
                     lon_number,
@@ -848,10 +1104,12 @@ def species_lists(opened=True) -> dict[_SPECIES_KEYS, gr.components.Component]:
                     sf_thresh_number,
                     yearlong_checkbox,
                     map_plot,
-                ) = species_list_coordinates()
+                ) = species_list_coordinates(state)
 
             species_file_input = gr.File(
-                file_types=[".txt"], visible=False, show_label=False
+                file_types=[".txt"],
+                visible=selected_species_list == _CUSTOM_SPECIES,
+                show_label=False,
             )
 
         list_df = gr.List(
@@ -981,8 +1239,8 @@ def _get_network_shortcuts():
 
                         shortcuts.append(path_buffer)
                     except Exception as e:
-                        print(f"Error reading {target_lnk}: {e}")
-                        raise e
+                        logger.exception(f"Error reading {target_lnk}: {e}")
+                        raise
 
         return shortcuts
     except Exception as e:
@@ -996,25 +1254,31 @@ def _get_win_drives():
     return [f"{drive}:\\" for drive in UPPER_CASE] + _get_network_shortcuts()
 
 
-def computing_settings():
+def computing_settings(state: TabState):
     import psutil
 
     with gr.Row():
-        bs_number = gr.Number(
+        bs_number = state.persist(
+            "batch_size_number",
+            gr.Number,
             precision=1,
             label=loc.localize("computing-settings-batchsize-number-label"),
             value=1,
             info=loc.localize("computing-settings-batchsize-number-info"),
             minimum=1,
         )
-        producers_number = gr.Number(
+        producers_number = state.persist(
+            "producers_number",
+            gr.Number,
             precision=1,
             label=loc.localize("computing-settings-producers-number-label"),
             value=1,
             info=loc.localize("computing-settings-producers-number-info"),
             minimum=1,
         )
-        workers_number = gr.Number(
+        workers_number = state.persist(
+            "workers_number",
+            gr.Number,
             precision=1,
             label=loc.localize("computing-settings-workers-number-label"),
             value=psutil.cpu_count(logical=True) or 1,
@@ -1043,6 +1307,47 @@ def info_box(description: str, title="Info") -> gr.Accordion:
 
 def slider_to_value(value: float):
     return max(0.1, 1.0 / (value * -1)) if value < 0 else max(1.0, float(value))
+
+
+def shutdown_running_analyses(timeout: float = 15.0) -> None:
+    """Stop any analysis still running when the GUI window is closed.
+
+    Closing the window returns from ``webview.start()``, but the Gradio worker
+    thread executing the analysis (and the birdnet worker/producer subprocesses
+    it spawned) keep running otherwise, so the analysis would continue headless
+    until it finishes on its own.
+
+    This cancels every in-flight session via the birdnet cancel event, which
+    lets each session stop the pipeline and tear down its subprocesses and shared
+    memory cleanly, then terminates anything still alive as a backstop.
+
+    Args:
+        timeout: Seconds to wait for cancelled sessions to shut down cleanly
+            before force-terminating leftover subprocesses.
+    """
+    import time
+
+    from birdnet_analyzer import model_utils
+
+    # No early-out on an empty registry: a Gradio worker thread can still
+    # register a session while we tear down. cancel_active_analyses() latches
+    # shutdown so any such late session cancels itself on registration.
+    model_utils.cancel_active_analyses()
+
+    # Some time to stop all processes
+    deadline = time.monotonic() + timeout
+    while model_utils.active_session_count() and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+    # Force terminate any subprocesses still alive, then join them so none are
+    # left unreaped. join() also gives terminate() time to take effect.
+    children = multiprocessing.active_children()
+    for child in children:
+        with suppress(Exception):
+            child.terminate()
+    for child in children:
+        with suppress(Exception):
+            child.join(timeout=5)
 
 
 def open_window(
@@ -1135,3 +1440,7 @@ def open_window(
         )
 
     webview.start(private_mode=False)
+
+    # The window has been closed. Make sure no analysis keeps running in the
+    # background now that there is no UI to control or observe it.
+    shutdown_running_analyses()

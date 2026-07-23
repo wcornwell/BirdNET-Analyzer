@@ -7,6 +7,8 @@ import gradio as gr
 import birdnet_analyzer.gui.localization as loc
 import birdnet_analyzer.gui.utils as gu
 from birdnet_analyzer import utils
+from birdnet_analyzer.gui.presets import PresetControls, load_train_params
+from birdnet_analyzer.gui.state import TabState
 
 _GRID_MAX_HEIGHT = 240
 
@@ -246,6 +248,16 @@ def start_training(
 
 
 def build_train_tab() -> gu.TAB_BUILDER_RESULT:
+    state = TabState("train")
+
+    # Training on a cache file leaves the training data and the preprocessing settings
+    # untouched, so the cache mode has to be known before those are built, even though
+    # it is shown below them.
+    cache_mode_value = state.get(
+        "cache_mode_radio", "none", choices=("none", "load", "save")
+    )
+    uses_cache_file = cache_mode_value == "load"
+
     with gr.Tab(loc.localize("training-tab-title")):
         input_directory_state = gr.State()
         output_directory_state = gr.State()
@@ -256,10 +268,17 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             title=loc.localize("training-tab-info-title"),
         )
 
+        preset_controls = PresetControls(
+            "train",
+            params_loader=load_train_params,
+            params_button_label=loc.localize("presets-load-train-params-button-label"),
+        )
+
         with gr.Group(), gr.Row(equal_height=True):
             select_directory_btn = gr.Button(
                 loc.localize("training-tab-input-selection-button-label"),
                 variant="primary",
+                interactive=not uses_cache_file,
             )
             selected_input_textbox = gr.Textbox(
                 show_label=False,
@@ -278,7 +297,9 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                 loc.localize("training-tab-classes-dataframe-column-classes-header")
             ],
             interactive=False,
+            visible=not uses_cache_file,
             max_height=_GRID_MAX_HEIGHT,
+            buttons=[],
         )
 
         def select_directory(state_key):
@@ -302,6 +323,7 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             select_test_directory_btn = gr.Button(
                 loc.localize("training-tab-test-data-selection-button-label"),
                 variant="primary",
+                interactive=not uses_cache_file,
             )
             selected_test_textbox = gr.Textbox(
                 show_label=False,
@@ -320,7 +342,9 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                 loc.localize("training-tab-classes-dataframe-column-classes-header")
             ],
             interactive=False,
+            visible=not uses_cache_file,
             max_height=_GRID_MAX_HEIGHT,
+            buttons=[],
         )
 
         select_test_directory_btn.click(
@@ -347,14 +371,18 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             )
 
         with gr.Column(visible=False) as classifier_settings_column:
-            classifier_name = gr.Textbox(
-                "CustomClassifier",
+            classifier_name = state.persist(
+                "classifier_name_textbox",
+                gr.Textbox,
+                value="CustomClassifier",
                 interactive=True,
                 info=loc.localize("training-tab-classifier-textbox-info"),
             )
-            output_formats = gr.CheckboxGroup(
-                ["tflite", "raven", "detached"],
-                value="tflite",
+            output_formats = state.persist(
+                "output_format_checkboxgroup",
+                gr.CheckboxGroup,
+                choices=["tflite", "raven", "detached"],
+                value=["tflite"],
                 label=loc.localize("training-tab-output-format-radio-label"),
                 info=loc.localize("training-tab-output-format-radio-info"),
                 interactive=True,
@@ -386,17 +414,19 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
 
         with gr.Row():
             cache_file_state = gr.State()
-            cache_mode = gr.Radio(
-                [
-                    (loc.localize("training-tab-cache-mode-radio-option-none"), None),
+            cache_mode = state.persist(
+                "cache_mode_radio",
+                gr.Radio,
+                choices=[
+                    (loc.localize("training-tab-cache-mode-radio-option-none"), "none"),
                     (loc.localize("training-tab-cache-mode-radio-option-load"), "load"),
                     (loc.localize("training-tab-cache-mode-radio-option-save"), "save"),
                 ],  # ty:ignore[invalid-argument-type]
-                value=None,
+                value="none",
                 label=loc.localize("training-tab-cache-mode-radio-label"),
                 info=loc.localize("training-tab-cache-mode-radio-info"),
             )
-            with gr.Column(visible=False) as new_cache_file_row:
+            with gr.Column(visible=cache_mode_value == "save") as new_cache_file_row:
                 with gr.Group(), gr.Row(equal_height=True):
                     select_cache_file_directory_btn = gr.Button(
                         loc.localize(
@@ -417,8 +447,10 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                     )
 
                 with gr.Column():
-                    cache_file_name = gr.Textbox(
-                        "train_cache.npz",
+                    cache_file_name = state.persist(
+                        "cache_file_name_textbox",
+                        gr.Textbox,
+                        value="train_cache.npz",
                         visible=False,
                         info=loc.localize("training-tab-cache-file-name-textbox-info"),
                     )
@@ -447,7 +479,7 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                     show_progress="hidden",
                 )
 
-            with gr.Column(visible=False) as load_cache_file_row:
+            with gr.Column(visible=uses_cache_file) as load_cache_file_row:
                 with gr.Group(), gr.Row(equal_height=True):
                     selected_cache_file_btn = gr.Button(
                         loc.localize("training-tab-cache-select-file-button-label"),
@@ -504,36 +536,51 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                     gr.update(interactive=value != "load"),
                 )
 
-        with gr.Accordion(
-            open=False, label=loc.localize("training-tab-preprocessing-accordion-label")
+        with (
+            gr.Group(),
+            gr.Accordion(
+                open=False,
+                label=loc.localize("training-tab-preprocessing-accordion-label"),
+            ),
         ):
             with gr.Row():
-                fmin_number = gr.Number(
-                    0,
+                fmin_number = state.persist(
+                    "fmin_number",
+                    gr.Number,
+                    value=0,
                     minimum=0,
+                    interactive=not uses_cache_file,
                     label=loc.localize("inference-settings-fmin-number-label"),
                     info=loc.localize("inference-settings-fmin-number-info"),
                 )
 
-                fmax_number = gr.Number(
-                    15000,
+                fmax_number = state.persist(
+                    "fmax_number",
+                    gr.Number,
+                    value=15000,
                     minimum=0,
+                    interactive=not uses_cache_file,
                     label=loc.localize("inference-settings-fmax-number-label"),
                     info=loc.localize("inference-settings-fmax-number-info"),
                 )
 
-            audio_speed_slider = gr.Slider(
+            audio_speed_slider = state.persist(
+                "audio_speed_slider",
+                gr.Slider,
                 minimum=-10,
                 maximum=10,
                 value=1,
                 step=1,
+                interactive=not uses_cache_file,
                 label=loc.localize("training-tab-audio-speed-slider-label"),
                 info=loc.localize("training-tab-audio-speed-slider-info"),
             )
 
             with gr.Row():
-                crop_mode = gr.Radio(
-                    [
+                crop_mode = state.persist(
+                    "crop_mode_radio",
+                    gr.Radio,
+                    choices=[
                         (
                             loc.localize("training-tab-crop-mode-radio-option-center"),
                             "center",
@@ -554,18 +601,23 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                         ),
                     ],
                     value="center",
+                    interactive=not uses_cache_file,
                     label=loc.localize("training-tab-crop-mode-radio-label"),
                     info=loc.localize("training-tab-crop-mode-radio-info"),
                 )
+                crops_segments = crop_mode.value in ("segments", "smart")
 
-                crop_overlap = gr.Slider(
+                crop_overlap = state.persist(
+                    "crop_overlap_slider",
+                    gr.Slider,
                     minimum=0,
                     maximum=2.99,
                     value=0.0,
                     step=0.01,
                     label=loc.localize("training-tab-crop-overlap-number-label"),
                     info=loc.localize("training-tab-crop-overlap-number-info"),
-                    visible=False,
+                    visible=crops_segments,
+                    interactive=crops_segments and not uses_cache_file,
                 )
 
             def on_crop_select(new_crop_mode):
@@ -597,52 +649,71 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             )
 
         with gr.Group():
-            autotune_cb = gr.Checkbox(
-                False,
+            autotune_cb = state.persist(
+                "autotune_checkbox",
+                gr.Checkbox,
+                value=False,
                 label=loc.localize("training-tab-autotune-checkbox-label"),
                 info=loc.localize("training-tab-autotune-checkbox-info"),
             )
+            autotunes = bool(autotune_cb.value)
 
-            with gr.Column(visible=False) as autotune_params, gr.Row():
-                autotune_trials = gr.Number(
-                    50,
+            with gr.Column(visible=autotunes) as autotune_params, gr.Row():
+                autotune_trials = state.persist(
+                    "autotune_trials_number",
+                    gr.Number,
+                    value=50,
                     label=loc.localize("training-tab-autotune-trials-number-label"),
                     info=loc.localize("training-tab-autotune-trials-number-info"),
                     minimum=1,
                 )
-                autotune_folds = gr.Number(
-                    5,
+                autotune_folds = state.persist(
+                    "autotune_folds_number",
+                    gr.Number,
+                    value=5,
                     minimum=1,
                     label=loc.localize("training-tab-autotune-folds-number-label"),
                     info=loc.localize("training-tab-autotune-folds-number-info"),
                 )
-                autotune_repeats = gr.Number(
-                    1,
+                autotune_repeats = state.persist(
+                    "autotune_repeats_number",
+                    gr.Number,
+                    value=1,
                     minimum=1,
                     label=loc.localize("training-tab-autotune-repeats-number-label"),
                     info=loc.localize("training-tab-autotune-repeats-number-info"),
                 )
 
-        with gr.Accordion(
-            open=False, label=loc.localize("training-tab-custom-params-accordion-label")
-        ) as custom_params:
+        with (
+            gr.Group(visible=not autotunes) as custom_params,
+            gr.Accordion(
+                open=False,
+                label=loc.localize("training-tab-custom-params-accordion-label"),
+            ),
+        ):
             with gr.Row():
-                epoch_number = gr.Number(
-                    50,
+                epoch_number = state.persist(
+                    "epochs_number",
+                    gr.Number,
+                    value=50,
                     minimum=1,
                     step=1,
                     label=loc.localize("training-tab-epochs-number-label"),
                     info=loc.localize("training-tab-epochs-number-info"),
                 )
-                batch_size_number = gr.Number(
-                    32,
+                batch_size_number = state.persist(
+                    "batch_size_number",
+                    gr.Number,
+                    value=32,
                     minimum=1,
                     step=8,
                     label=loc.localize("training-tab-batchsize-number-label"),
                     info=loc.localize("training-tab-batchsize-number-info"),
                 )
-                learning_rate_number = gr.Number(
-                    0.0001,
+                learning_rate_number = state.persist(
+                    "learning_rate_number",
+                    gr.Number,
+                    value=0.0001,
                     minimum=0.0001,
                     step=0.0001,
                     label=loc.localize("training-tab-learningrate-number-label"),
@@ -650,23 +721,29 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                 )
 
             with gr.Row():
-                hidden_units_number = gr.Number(
-                    0,
+                hidden_units_number = state.persist(
+                    "hidden_units_number",
+                    gr.Number,
+                    value=0,
                     minimum=0,
                     step=64,
                     label=loc.localize("training-tab-hiddenunits-number-label"),
                     info=loc.localize("training-tab-hiddenunits-number-info"),
                 )
-                dropout_number = gr.Number(
-                    0.0,
+                dropout_number = state.persist(
+                    "dropout_number",
+                    gr.Number,
+                    value=0.0,
                     minimum=0.0,
                     maximum=0.9,
                     step=0.1,
                     label=loc.localize("training-tab-dropout-number-label"),
                     info=loc.localize("training-tab-dropout-number-info"),
                 )
-                use_label_smoothing = gr.Checkbox(
-                    False,
+                use_label_smoothing = state.persist(
+                    "use_label_smoothing_checkbox",
+                    gr.Checkbox,
+                    value=False,
                     label=loc.localize(
                         "training-tab-use-labelsmoothing-checkbox-label"
                     ),
@@ -675,8 +752,10 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                 )
 
             with gr.Row():
-                upsampling_mode = gr.Radio(
-                    [
+                upsampling_mode = state.persist(
+                    "upsampling_mode_radio",
+                    gr.Radio,
+                    choices=[
                         (
                             loc.localize("training-tab-upsampling-radio-option-repeat"),
                             "repeat",
@@ -698,51 +777,63 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
                     label=loc.localize("training-tab-upsampling-radio-label"),
                     info=loc.localize("training-tab-upsampling-radio-info"),
                 )
-                upsampling_ratio = gr.Slider(
-                    0.0,
-                    1.0,
-                    0.0,
+                upsampling_ratio = state.persist(
+                    "upsampling_ratio_slider",
+                    gr.Slider,
+                    minimum=0.0,
+                    maximum=1.0,
+                    value=0.0,
                     step=0.05,
                     label=loc.localize("training-tab-upsampling-ratio-slider-label"),
                     info=loc.localize("training-tab-upsampling-ratio-slider-info"),
                 )
 
             with gr.Row():
-                use_mixup = gr.Checkbox(
-                    False,
+                use_mixup = state.persist(
+                    "use_mixup_checkbox",
+                    gr.Checkbox,
+                    value=False,
                     label=loc.localize("training-tab-use-mixup-checkbox-label"),
                     info=loc.localize("training-tab-use-mixup-checkbox-info"),
                     show_label=True,
                 )
-                use_focal_loss = gr.Checkbox(
-                    False,
+                use_focal_loss = state.persist(
+                    "use_focal_loss_checkbox",
+                    gr.Checkbox,
+                    value=False,
                     label=loc.localize("training-tab-use-focal-loss-checkbox-label"),
                     info=loc.localize("training-tab-use-focal-loss-checkbox-info"),
                     show_label=True,
                 )
 
-        with gr.Row(visible=False) as focal_loss_params, gr.Row():
-            focal_loss_gamma = gr.Slider(
-                minimum=0.5,
-                maximum=5.0,
-                value=2.0,
-                step=0.1,
-                label=loc.localize("training-tab-focal-loss-gamma-slider-label"),
-                info=loc.localize("training-tab-focal-loss-gamma-slider-info"),
-                interactive=True,
-            )
-            focal_loss_alpha = gr.Slider(
-                minimum=0.1,
-                maximum=0.9,
-                value=0.25,
-                step=0.05,
-                label=loc.localize("training-tab-focal-loss-alpha-slider-label"),
-                info=loc.localize("training-tab-focal-loss-alpha-slider-info"),
-                interactive=True,
-            )
+            with gr.Row(
+                visible=bool(use_focal_loss.value) and not autotunes
+            ) as focal_loss_params:
+                focal_loss_gamma = state.persist(
+                    "focal_loss_gamma_slider",
+                    gr.Slider,
+                    minimum=0.5,
+                    maximum=5.0,
+                    value=2.0,
+                    step=0.1,
+                    label=loc.localize("training-tab-focal-loss-gamma-slider-label"),
+                    info=loc.localize("training-tab-focal-loss-gamma-slider-info"),
+                    interactive=True,
+                )
+                focal_loss_alpha = state.persist(
+                    "focal_loss_alpha_slider",
+                    gr.Slider,
+                    minimum=0.1,
+                    maximum=0.9,
+                    value=0.25,
+                    step=0.05,
+                    label=loc.localize("training-tab-focal-loss-alpha-slider-label"),
+                    info=loc.localize("training-tab-focal-loss-alpha-slider-info"),
+                    interactive=True,
+                )
 
         def on_focal_loss_change(value):
-            return gr.Row(visible=value)
+            return gr.update(visible=value)
 
         use_focal_loss.change(
             on_focal_loss_change,
@@ -753,9 +844,9 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
 
         def on_autotune_change(value):
             return (
-                gr.Column(visible=not value),
-                gr.Column(visible=value),
-                gr.Row(visible=not value and use_focal_loss.value),
+                gr.update(visible=not value),
+                gr.update(visible=value),
+                gr.update(visible=not value and use_focal_loss.value),
             )
 
         autotune_cb.change(
@@ -765,8 +856,10 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             show_progress="hidden",
         )
 
-        model_save_mode = gr.Radio(
-            [
+        model_save_mode = state.persist(
+            "model_save_mode_radio",
+            gr.Radio,
+            choices=[
                 (
                     loc.localize("training-tab-model-save-mode-radio-option-replace"),
                     "replace",
@@ -876,6 +969,8 @@ def build_train_tab() -> gu.TAB_BUILDER_RESULT:
             ],
             outputs=[train_history_plot, metrics_table],
         )
+
+        preset_controls.wire(state)
 
 
 if __name__ == "__main__":

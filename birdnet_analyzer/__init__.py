@@ -1,3 +1,4 @@
+import logging
 import os
 import warnings
 
@@ -17,3 +18,7 @@ __version__ = "2.4.0"
 __all__ = ["analyze", "embeddings", "search", "segments", "species", "train"]
 
 warnings.filterwarnings("ignore")
+
+# Library convention: emit records but leave the configuration to the host
+# application. The shipped CLI and GUI configure handlers via logs.setup_logging().
+logging.getLogger(__name__).addHandler(logging.NullHandler())

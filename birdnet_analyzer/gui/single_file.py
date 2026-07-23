@@ -6,12 +6,13 @@ import gradio as gr
 import birdnet_analyzer.config as cfg
 import birdnet_analyzer.gui.localization as loc
 import birdnet_analyzer.gui.utils as gu
-from birdnet_analyzer import audio, utils
+from birdnet_analyzer import utils
 from birdnet_analyzer.analyze.core import (
     save_as_csv,
     save_as_kaleidoscope,
     save_as_rtable,
 )
+from birdnet_analyzer.gui.state import TabState
 
 MATPLOTLIB_FIGURE_NUM = "single-file-tab-spectrogram-plot"
 HEADER_START_LBL = loc.localize("single-tab-output-header-start")
@@ -143,6 +144,8 @@ def run_single_file_analysis(
 
 
 def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
+    state = TabState("single")
+
     with gr.Tab(loc.localize("single-tab-title")):
         gu.info_box(
             description=loc.localize("single-tab-info-text"),
@@ -169,6 +172,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             label=loc.localize("single-audio-label"),
             interactive=False,
             visible=False,
+            buttons=[],
             editable=False,
         )
 
@@ -177,7 +181,9 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                 label=loc.localize("review-tab-spectrogram-plot-label"),
                 show_label=False,
             )
-        generate_spectrogram_cb = gr.Checkbox(
+        generate_spectrogram_cb = state.persist(
+            "generate_spectrogram_checkbox",
+            gr.Checkbox,
             value=False,
             label=loc.localize("single-tab-spectrogram-checkbox-label"),
             info=loc.localize("single-tab-spectrogram-checkbox-info"),
@@ -185,7 +191,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
         audio_path_state = gr.State()
         last_prediction_state = gr.State()
         sample_settings, species_settings, model_settings = (
-            gu.sample_species_model_settings(opened=False)
+            gu.sample_species_model_settings(state, opened=False)
         )
 
         single_file_analyze = gr.Button(
@@ -226,10 +232,13 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             ],
             elem_id="single-file-output",
             interactive=False,
+            buttons=[],
         )
 
         def select_and_load_audio_file(generate_spectrogram=False):
             """Use webview dialog to select audio file and load it."""
+            from birdnet_analyzer import audio
+
             file_path = gu.select_file(
                 filetypes=(
                     "Audio files (*.wav;*.flac;*.mp3;*.ogg;*.m4a;*.wma;*.aiff;*.aif)",
@@ -250,6 +259,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                                 file_path,
                                 fig_size=(20, 4),
                                 fig_num=MATPLOTLIB_FIGURE_NUM,
+                                **gu.spectrogram_settings(),
                             ),
                         )
                         if generate_spectrogram
@@ -294,6 +304,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                                 audio_path,
                                 fig_size=(20, 4),
                                 fig_num=MATPLOTLIB_FIGURE_NUM,
+                                **gu.spectrogram_settings(),
                             ),
                         ),
                     )
@@ -359,6 +370,8 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                 ) from e
 
         def get_selected_audio(evt: gr.SelectData, audio_path):
+            from birdnet_analyzer import audio
+
             if evt.index[1] == 0 and evt.row_value[1] and evt.row_value[2]:
                 start = time_to_seconds(evt.row_value[1])
                 end = time_to_seconds(evt.row_value[2])
