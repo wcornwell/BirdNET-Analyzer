@@ -1,5 +1,25 @@
 # BirdNET-Analyzer — Project Notes for Claude
 
+## Where this repo sits — read before building anything new
+
+**One library, two backbones.** `reallybig` is backbone-agnostic labeled audio living
+outside every repo (OneDrive `call_library/`). Only the *embedding caches* and *venvs*
+fork per backbone — the library itself never does.
+
+**This repo owns:** the engine — training, analyze, and embedding *extraction*.
+**It does NOT own:** curation of `reallybig` (→ `Training_library_assembly_pipeline`),
+evaluation (→ `soundscape-eval`), or embedding *analysis/visualisation* (→ `birdnetEmbed`).
+
+⚠️ **Its `.venv` is shared infrastructure.** `Training_library_assembly_pipeline/curation/`
+and `soundscape-eval` both invoke it by absolute path, and `soundscape-eval` imports this
+fork **editable** — whichever branch is checked out here is what it gets. Keep this on
+`main` when others are running evals.
+
+⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
+move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
+
+Full ownership table, seams, venvs, shared data: **`~/Documents/ECOACOUSTICS.md`**.
+
 ## Repo structure
 
 This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer).
@@ -91,12 +111,39 @@ git merge upstream/main
 # train/utils.py (is_non_event), model.py (validation metrics). Resolve KEEPING our layer.
 ```
 
-**Pending upstream sync (as of 2026-07-22):** 8 commits `9dc98c4..upstream/main` (through #962
-"Improve GUI startup time") — GUI/logging/Docker/gradio-6 by theme, but they DO rewrite
-`model.py` (−244), `train/utils.py`, `analyze/core.py`, `cli.py`, `model_utils.py`, so expect
-**real conflicts on the feature layer**. Deliberately deferred to a separate, independently
-tested step — NOT folded into the swap (which had to equal the validated tree). The gradio-6
-bump is contained to a `gui-tests` extra, not the core dep.
+**Upstream sync — DONE 2026-07-23.** The 8 commits `9dc98c4..upstream/main` (through #962
+"Improve GUI startup time") were merged on branch `upstream-sync-2026-07`. It went far more
+smoothly than the pre-merge note predicted: **one conflict**, the import block at the top of
+`model.py` (upstream dropped `config as cfg` + `utils`; resolved by keeping `cfg`, which the
+validation-metrics block still uses, and dropping `utils`, whose only use — `save_params_to_file`
+— upstream moved out). Everything else auto-merged; the whole fork feature layer survived
+(verified by inspection, not assumption: `NON_EVENT_PREFIXES`/`NON_EVENT_KEEP_CLASSES`/`CODES_FILE`,
+`is_non_event()`, the `added_count` fix, the upsampling summary, the species/non_target metrics
+block, `cfg.CUSTOM_CLASSIFIER = output`, both CLI flags). **Tests: 502 passed / 2 skipped / 0
+failures** (up from 474 — upstream added ~28). ruff clean.
+
+**Two upstream behavior changes this pulled in — not merge damage, deliberate upstream moves:**
+1. **`<name>_Params.csv` is gone**, replaced by **`<name>.birdnet.train-params.csv`** (one *row*
+   per parameter instead of one column), written from `train/utils.py` rather than `model.py`;
+   `config.TRAIN_PARAMS_SUFFIX` holds the suffix. Upstream's new `params.py` still reads the old
+   file, so historical `pelican0-*_Params.csv` stay loadable. Anything downstream globbing
+   `*_Params.csv` needs updating.
+2. Upstream's `dev` extra bumps **ruff 0.14.0 → 0.15.10** (we still run 0.14.0 locally, clean).
+
+Local follow-ups committed on top (`b509ddf`): the new params dict is explicit and had **omitted
+the helper-mode settings**, so a run's `--non_event_prefixes`/`--keep_as_class` were no longer
+recoverable from its artifacts — now recorded from `cfg`; and `train_pelican.sh`'s no-clobber
+preflight was still checking the never-written `_Params.csv`, now pointed at the new name.
+
+**Post-merge smoke (2026-07-23, subset — 5 species + 4 helper folders, ~2.3k clips):** both
+helper modes end-to-end, exit 0, no macOS deadlock. Default mode → 5 species labels (all 4
+helpers correctly neuron-less non-events); `--keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren"`
+→ 7 labels with the two carve-outs present and `Environment_*` still absent, and they are tagged
+`non_target` (not `species`) in the metrics CSV, which keeps main's full format
+(`overall_*`/`species_*`/`non_target_*` summary rows). A **full-`reallybig` run was judged
+unnecessary** here: upstream's diff is GUI/logging/Docker by theme and touches `model.py` by only
+−11 lines, so there is no plausible species-quality surface — unlike the core swap, which needed
+all 5 phases.
 
 ### Merging the refactor into `main` — testing plan (formulated 2026-07-20; **EXECUTED 2026-07-22, all phases passed → `main` swapped, commit `1d2ac30`**)
 
@@ -327,9 +374,10 @@ Install deps:
 ```
 
 Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships in the
-`dev` extra, pinned to `0.14.0` (`pyproject.toml`); install it with
-`.venv/bin/pip install "ruff==0.14.0"` and run `.venv/bin/ruff check <files>` before
-committing.
+`dev` extra; run `.venv/bin/ruff check <files>` before committing. ⚠️ The `pyproject.toml`
+pin is **`0.15.10`** as of the 2026-07-23 upstream sync, but the installed `.venv` still has
+**`0.14.0`** (clean under it). Upgrade with `.venv/bin/pip install "ruff==0.15.10"` if a CI
+lint difference ever bites.
 
 ---
 
@@ -420,7 +468,11 @@ Trained models go to:
 Each run produces:
 - `<name>.tflite` — the classifier
 - `<name>_Labels.txt`
-- `<name>_Params.csv`
+- `<name>.birdnet.train-params.csv` — the run's hyperparameters, **one row per parameter**.
+  Renamed from `<name>_Params.csv` (one column per parameter) by the 2026-07-23 upstream sync;
+  models trained before that still carry the old file, and upstream's `params.py` reads both.
+  Also records `Non-event prefixes` / `Non-event keep classes` (our addition), so a run's
+  helper mode is recoverable from its artifacts.
 - `<name>_sample_counts.csv`
 - `<name>_validation_metrics.csv` — per-species precision/recall (our addition)
 
@@ -454,8 +506,8 @@ into trained models; a rename means a retrain).
 
 Run (from BirdNET-Analyzer, via this repo's `.venv`):
 ```bash
-.venv/bin/python /Users/z3484779/Documents/Training_library_assembly_pipeline/curation/check_taxonomy_drift.py
-.venv/bin/python /Users/z3484779/Documents/Training_library_assembly_pipeline/curation/check_ebird_drift.py
+.venv/bin/python /Users/z3484779/Documents/ecoacoustics/Training_library_assembly_pipeline/curation/check_taxonomy_drift.py
+.venv/bin/python /Users/z3484779/Documents/ecoacoustics/Training_library_assembly_pipeline/curation/check_ebird_drift.py
 .venv/bin/python map_custom_to_global.py          # → custom_to_global_lookup.csv
 .venv/bin/python update_ebird_taxonomy.py         # only when swapping the global model
 ```
@@ -544,7 +596,7 @@ per-class scores.
 > base-embedding extraction to compare arms cheaply — superseded by training and
 > saving **whole separate models** (`train_pelican.sh`, helpers-as-non-event now the
 > default) and comparing them in the dedicated **`soundscape-eval`** repo
-> (`/Users/z3484779/Documents/soundscape-eval`). The findings below are retained as
+> (`/Users/z3484779/Documents/ecoacoustics/soundscape-eval`). The findings below are retained as
 > the empirical record that motivated the default; re-run via whole-model eval to
 > refresh them.
 
@@ -673,7 +725,7 @@ sibling projects (reorg 2026-06-19):
   `Training_library_assembly_pipeline/curation/` — run via **this repo's `.venv` by
   absolute path** (no separate venv).
 - **visualisation** (categorised UMAP / confusability / centroid plots) →
-  `birdnetEmbed` R package (`~/Documents/birdnetEmbed`, `traitecoevo/birdnetEmbed`).
+  `birdnetEmbed` R package (`~/Documents/ecoacoustics/birdnetEmbed`, `traitecoevo/birdnetEmbed`).
 
 Shared embeddings are **DATA, not a repo internal**: the `.npz` + `_centroids.csv` +
 candidate/misclass CSVs live in **`call_library/embeddings/`** (next to `reallybig`
@@ -691,16 +743,16 @@ downsample/relabel run-records).
 
 **Misclassification analysis** (now in the assembly repo's `curation/`):
 ```bash
-.venv/bin/python /Users/z3484779/Documents/Training_library_assembly_pipeline/curation/identify_misclassifications.py \
+.venv/bin/python /Users/z3484779/Documents/ecoacoustics/Training_library_assembly_pipeline/curation/identify_misclassifications.py \
     --input /Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/embeddings/reallybig_pelican0-14_embeddings.npz \
     --output /Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/embeddings/reallybig_pelican0-14
 ```
 
 **Categorisation + plots** → `birdnetEmbed` (R), one command per model:
 ```bash
-BIRDNET_PYTHON=/Users/z3484779/Documents/BirdNET-Analyzer/.venv/bin/python \
+BIRDNET_PYTHON=/Users/z3484779/Documents/ecoacoustics/BirdNET-Analyzer/.venv/bin/python \
 BIRDNET_TAXONOMY_CACHE=/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers/ala_taxonomy_cache.csv \
-  Rscript /Users/z3484779/Documents/birdnetEmbed/scripts/analyse_model.R \
+  Rscript /Users/z3484779/Documents/ecoacoustics/birdnetEmbed/scripts/analyse_model.R \
     /Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/embeddings/reallybig_pelican0-14_embeddings.npz pelican0-14
 ```
 
@@ -742,7 +794,7 @@ shapes (literal absolute paths, no `$(...)`/`~`) so they keep matching.
 | Workflow step | Allow rule that covers it |
 |---|---|
 | `extract_embeddings.py` (curation tools `identify_misclassifications.py`/`npz_to_cache.py`/`downsample_class.py` now in the assembly repo) | `Bash(.venv/bin/python *)` |
-| `analyse_model.R` (UMAP + confusability) | `Bash(BIRDNET_PYTHON=/Users/z3484779/Documents/BirdNET-Analyzer/.venv/bin/python Rscript *)` |
+| `analyse_model.R` (UMAP + confusability) | `Bash(BIRDNET_PYTHON=/Users/z3484779/Documents/ecoacoustics/BirdNET-Analyzer/.venv/bin/python Rscript *)` |
 | `train_pelican.sh <name> [flags]` | `Bash(./train_pelican.sh *)` |
 | test suite | `Bash(.venv/bin/pytest *)` |
 
@@ -758,7 +810,7 @@ workflow commands for this reason.
 The non-target sink/event class build (rain/wind/thunder/stream/surf/airplane/…
 from FSD50K + Freesound + ESC-50) and all library-curation tooling moved out of this
 repo in the 2026-06-19 reorg. It now lives in
-**`~/Documents/Training_library_assembly_pipeline/`** (`geophony/`, `species/`,
+**`~/Documents/ecoacoustics/Training_library_assembly_pipeline/`** (`geophony/`, `species/`,
 `curation/`). See that repo's `CLAUDE.md` for the per-class build recipe, naming
 conventions (`Environment_<Type>` / `Homo sapiens_<Type>`), and the 350-cap rule.
 This repo keeps only `extract_embeddings.py` (extraction); curation reads/writes the
@@ -771,7 +823,7 @@ shared `call_library/embeddings/` npz via this repo's `.venv`.
 | Training library | `/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig` |
 | Recognizers | `/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers/` |
 | Embeddings (shared data) | `/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/embeddings/` |
-| Library assembly + curation | `/Users/z3484779/Documents/Training_library_assembly_pipeline/` |
+| Library assembly + curation | `/Users/z3484779/Documents/ecoacoustics/Training_library_assembly_pipeline/` |
 
 ---
 
@@ -801,15 +853,19 @@ Or via CLI:
 
 ```bash
 .venv/bin/pytest tests/ --timeout=120 -q --ignore=tests/analyze/test_analyze.py
-# 363 passed, 4 skipped (checked 2026-06-26)
+# 502 passed, 2 skipped (checked 2026-07-23, post upstream sync)
 ```
 
-Two known-broken tests, both dependency/fixture issues unrelated to our changes:
-- `tests/analyze/test_analyze.py` — excluded above; needs a `CustomClassifier.tflite`
-  fixture that isn't in the repo (upstream issue).
-- `tests/embeddings/test_embeddings.py::test_embeddings_cli` — fails on a
-  `perch_hoplite` API drift: `birdnet_analyzer/embeddings/utils.py:52` references
-  `sqlite_usearch_impl.SQLiteUsearchDB`, but the installed `perch_hoplite` renamed it
-  `SQLiteUSearchDB` (capital S). One-char fix if/when the embeddings DB path matters.
+Still excluded: `tests/analyze/test_analyze.py` — 2 of its 6 tests
+(`test_analyze_with_real_custom_classifier[_and_species_list]`) need a
+`CustomClassifier.tflite` fixture that isn't in the repo (upstream issue); the other 4 pass.
 
-`tests/train/` (2 tests) covers the training pipeline and passes.
+The 2 skips are `tests/gui/test_presets.py` and `tests/gui/test_state.py` — new upstream GUI
+tests that skip because `gradio` isn't installed in this `.venv` (we don't use the GUI).
+Install the `gui-tests` extra if you ever need them.
+
+**Resolved by the 2026-07-23 upstream sync:** the old `perch_hoplite` `SQLiteUsearchDB`
+capitalization drift — `birdnet_analyzer/embeddings/utils.py` is gone and every remaining
+reference uses the correct `SQLiteUSearchDB`, so `tests/embeddings/` passes.
+
+`tests/train/` covers the training pipeline (including `test_non_events.py`) and passes.
