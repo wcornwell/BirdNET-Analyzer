@@ -94,12 +94,23 @@ artifacts. Verified equivalent two ways: reading the tensor, and projecting the 
 > `flat_sigmoid` is kept (upstream + live via `train/utils`). The old macOS **TF XLA deadlock fix**
 > in `model.py` is superseded by the XLA guard in `config.py` + the `train_tf_first.py` TF-first init.
 
-### `sync-upstream-refactor` / `refactor-to-main-trial` — now merged into `main`
+### `sync-upstream-refactor` / `refactor-to-main-trial` — merged into `main`, both DELETED
 
-`sync-upstream-refactor` tracks upstream's birdnet-library core; **`main` now contains its
-content** (via the trial branch `refactor-to-main-trial`, tip `b05939c`), so all three are
-functionally aligned. Keep `sync-upstream-refactor` as the clean upstream-sync staging area;
-`refactor-to-main-trial` is historical (its content is on `main`).
+Both branches are **gone as of 2026-07-23** (local and remote), after the upstream sync below
+confirmed they had no remaining job. `sync-upstream-refactor` tracked upstream's
+birdnet-library core and `main` absorbed its content via `refactor-to-main-trial` (tip
+`b05939c`) in the `1d2ac30` swap; its last tip, `9dc98c4`, is **fully contained in `main`**, so
+nothing was lost and it is restorable with
+`git push origin 9dc98c4:refs/heads/sync-upstream-refactor` if ever needed.
+
+**Why the staging branch was retired:** it existed to absorb the TFLite-vs-birdnet-library
+divergence away from `main`. That divergence is gone, and the 2026-07-23 sync demonstrated the
+replacement workflow in practice — `git merge upstream/main` on a throwaway branch cut from
+`main`, tested, fast-forwarded, branch deleted. **Use that pattern for future syncs**; there is
+no longer a long-lived staging branch to route through.
+
+**The only remaining branch is `main`.** Anything else you see is a `remotes/upstream/*`
+feature branch belonging to the upstream project, not ours.
 
 **Syncing `main` with upstream — now a plain merge** (the TFLite divergence that made this
 dangerous is gone):
@@ -407,7 +418,7 @@ Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 
 Override any parameter by appending flags: `./train_pelican.sh pelican0-11 --epochs 100`
 
-Appended flags are passed straight through to `birdnet_analyzer.train`, and argparse uses the last value, so an appended `--epochs 100` overrides the baked-in `--epochs 50`. Note: only flag-style overrides work — don't append a bare positional like `cache.npz`, since `train` accepts a single positional (`INPUT`, already set to the reallybig library) and a second one errors out. The main-branch pipeline needs no cache; the `--cache_file` / `--cache_mode` workflow belongs to the slower `sync-upstream-refactor` branch.
+Appended flags are passed straight through to `birdnet_analyzer.train`, and argparse uses the last value, so an appended `--epochs 100` overrides the baked-in `--epochs 50`. Note: only flag-style overrides work — don't append a bare positional like `cache.npz`, since `train` accepts a single positional (`INPUT`, already set to the reallybig library) and a second one errors out. `train_pelican.sh` needs no cache — it passes the `reallybig` folder and the loader extracts embeddings inline. The `--cache_file` / `--cache_mode` flags still exist (they came in with the birdnet-library core and now live on `main`); the refactor's cache path only triggers when `INPUT` is a cache file, so the inline route is unaffected.
 
 ### Helper classes as non-events (DEFAULT in `train_pelican.sh`)
 
