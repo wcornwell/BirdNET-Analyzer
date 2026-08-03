@@ -422,6 +422,12 @@ Appended flags are passed straight through to `birdnet_analyzer.train`, and argp
 
 ### Helper classes as non-events (DEFAULT in `train_pelican.sh`)
 
+> **Dual-arm run contract:** `training_runs/CLAUDE.md` (the `run_dual.sh` orchestrator) relies on
+> this being the default, and mirrors it on the Perch side. The run-level defaults —
+> `Environment_*`/`Homo sapiens_*` as non-events, and training on **all** `reallybig`
+> classes — live in `~/Documents/ecoacoustics/training_runs/CLAUDE.md` § "Run defaults". Keep the two
+> in sync if this default changes.
+
 Formalizes the geophony/anthropophony non-event experiments (the "Design fork" /
 `both` decision below) into the training pipeline. Two `birdnet_analyzer.train`
 flags drive it (added to main; see the non-event mechanism in the metrics section):
