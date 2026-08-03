@@ -18,7 +18,7 @@ fork **editable** — whichever branch is checked out here is what it gets. Keep
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
 
-Full ownership table, seams, venvs, shared data: **`~/Documents/ECOACOUSTICS.md`**.
+Full ownership table, seams, venvs, shared data: **`~/Documents/ecoacoustics/ECOACOUSTICS.md`**.
 
 ## Repo structure
 
