@@ -198,3 +198,17 @@ entitlements.plist
 train_caches/
 analysis_outputs/
 labeled_soundscape/
+
+# Local analysis data and run outputs -- audio, segments and detection tables
+# from working a site through this checkout. Large (GBs) and site-specific;
+# the audio of record lives in the call_library store, not here.
+cc_output/
+sl1/
+sl1_output/
+sl1_segments/
+smithslakeoutput/
+CCA Birdlist*.csv
+CCA Birdlist*.xlsx
+
+# Local classifier artifacts kept for ad-hoc testing (.tflite + label txt)
+testing/
