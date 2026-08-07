@@ -11,6 +11,9 @@
 # Usage:
 #   ./train_pelican.sh pelican0-10
 #   ./train_pelican.sh pelican0-10 --epochs 100        (pass extra flags after name)
+#   ./train_pelican.sh bodangora_birdnet0-1 --library /path/to/other_library
+#                                                      (train on a library other than
+#                                                       reallybig; same recipe either way)
 #   ./train_pelican.sh pelican0-10 --report-helpers    (opt out: keep helpers as
 #                                                        positive, reported classes)
 #
@@ -37,7 +40,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <recognizer-name> [--report-helpers] [--keep-airplane-siren] [extra birdnet_analyzer.train flags]"
+    echo "Usage: $0 <recognizer-name> [--library DIR] [--report-helpers] [--keep-airplane-siren] [extra birdnet_analyzer.train flags]"
     exit 1
 fi
 
@@ -47,12 +50,28 @@ NAME="$1"; shift
 # opt out with --report-helpers (keep them as positive, reported classes), or
 # carve out Airplane/Siren with --keep-airplane-siren. Everything else passes
 # straight through; an explicit --non_event_prefixes suppresses the baked-in default.
+#
+# --library DIR trains on a different call library (default: reallybig). The recipe below
+# -- non-event prefixes, hyperparameters, output dir -- is unchanged by it: the library is
+# an INPUT to this recipe, not a variant of it. The folder must have reallybig's shape
+# (`Genus species_Common Name/` class dirs, plus the Environment_*/Homo sapiens_*/Noise
+# helpers), because that shape is what the non-event defaults and the downstream
+# scientific-name join both key on.
 HELPERS_AS_NONEVENTS=true
 KEEP_AIRPLANE_SIREN=false
 USER_SET_PREFIXES=false
+TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
+EXPECT_LIBRARY=false
 EXTRA_ARGS=()
 for arg in "$@"; do
+    # --library takes a value, so consume the token after it rather than passing it on.
+    if $EXPECT_LIBRARY; then
+        TRAIN_DATA="$arg"; EXPECT_LIBRARY=false; continue
+    fi
     case "$arg" in
+        --library)
+            EXPECT_LIBRARY=true
+            ;;
         --report-helpers)
             HELPERS_AS_NONEVENTS=false
             ;;
@@ -72,6 +91,8 @@ for arg in "$@"; do
             ;;
     esac
 done
+$EXPECT_LIBRARY && { echo "Error: --library needs a directory." >&2; exit 1; }
+[[ -d "$TRAIN_DATA" ]] || { echo "Error: training library not found: $TRAIN_DATA" >&2; exit 1; }
 
 # Inject the default non-event prefixes unless the user opted out or set them explicitly.
 if $HELPERS_AS_NONEVENTS && ! $USER_SET_PREFIXES; then
@@ -84,7 +105,7 @@ fi
 # focal-loss-gamma default is 2.0 (was 3.0): the Smiths Lake gamma sweep showed gamma=3
 # over-focused and starved hard/faint positives; gamma=2 recovered recall on the labeled
 # soundscape (R@1FP/hr 0.213 -> 0.226, and fewer false negatives). See configs/smithslake_gamma.yaml.
-TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
+# TRAIN_DATA is set in the argument loop above (default reallybig, override with --library).
 OUTPUT_DIR="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/recognizers"
 VENV="$(dirname "$0")/.venv/bin/python"
 
