@@ -711,11 +711,34 @@ calls stay similar and an acoustic classifier *should* confuse them.
 
 ### Per-class P/R computation — current method & its limits
 
-`train_linear_classifier` (`model.py:711`; metrics block ~`882-980`):
-`y_pred = (y_prob >= threshold)` with `threshold = 0.5` (`model.py:889`), then
-`precision_recall_fscore_support(average=None)` (`model.py:901`) — **per-class binary
-at a fixed 0.5 threshold** (this is the correct multi-label framing, *not* a 438-way
-argmax).
+**`model.compute_validation_metrics(y_true, y_pred, labels)`** — module-level and pure,
+called by `train_linear_classifier` after `fit`. `y_pred = (y_prob >= threshold)` with
+`threshold = 0.5`, then **per-output-column TP/FP/FN counted directly** — **per-class
+binary at a fixed 0.5 threshold** (the correct multi-label framing, *not* a 438-way
+argmax). Micro comes from the summed counts, macro from the per-class mean; both are
+also computed over the species/non_target column subsets. Returns
+`(per_class, summaries)`: one `(type, label, precision, recall)` per column, plus a dict
+of the six `overall_*`/`species_*`/`non_target_*` summaries whose insertion order *is*
+the CSV row order.
+
+> **Was `sklearn.precision_recall_fscore_support`, inline in `train_linear_classifier`;
+> replaced 2026-08-07 (bug fix).** sklearn infers the target type, and a **single-column**
+> indicator matrix `(n, 1)` infers as **binary, not multilabel** — it then scores the
+> negative class as a second class. Effects: micro/macro inflated (counts true negatives
+> as hits), and `average=None` returns **2** rows for 1 class, so per-class CSV rows
+> shift off their labels (real label ← negative-class scores, plus a phantom `class_1`).
+> This hit **single-species classifiers**, and — less obviously — **any** run where the
+> species *or* non_target partition was exactly one column wide, since the subset
+> summaries took the same path on an otherwise multi-class model. Verified equal to
+> sklearn at ≥2 columns, so **all historical pelican numbers are unaffected**; the CSV
+> format is unchanged. Regression tests: `tests/train/test_validation_metrics.py`.
+> Side effect: sklearn (an *undeclared* transitive dep) is no longer imported here, so
+> the old "skip metrics" fallback — which also leaked `CUDA_VISIBLE_DEVICES` by returning
+> early — is gone.
+>
+> **Why the computation is a separate pure function:** so it can be tested without
+> training. See the `model.fit`-under-pytest warning in the Tests section.
+
 Weaknesses to fix:
 1. **Single arbitrary 0.5 threshold** that also **doesn't match the deployed
    operating point** (inference applies `flat_sigmoid(sensitivity,bias)`,
@@ -870,8 +893,25 @@ Or via CLI:
 
 ```bash
 .venv/bin/pytest tests/ --timeout=120 -q --ignore=tests/analyze/test_analyze.py
-# 502 passed, 2 skipped (checked 2026-07-23, post upstream sync)
+# 514 passed, 2 skipped in ~11 s (checked 2026-08-07; was 502 pre-validation-metrics tests)
 ```
+
+⚠️ **The suite runs in ~11 seconds. If it runs for minutes, it is DEADLOCKED, not slow** —
+and `--timeout=120` will *not* save you.
+
+**Never call `model.fit` (or anything that trains) from a test.** Under pytest it hits the
+macOS TF × PyArrow absl deadlock: an earlier test imports the birdnet loader → PyArrow,
+whose statically-linked absl interposes TensorFlow's, so eager execution parks forever in
+`absl::Notification` inside `TFE_Execute`. The `train_tf_first.py` launcher fixes this for
+*training entry points* but **cannot help under pytest**, which controls import order. Such
+a test passes in isolation (TF binds first) and hangs only in the full suite — and
+pytest-timeout's thread-based method can't interrupt a C-level condvar, so it hangs
+*silently and indefinitely* rather than failing. Test training-adjacent logic by extracting
+it into a pure function (as `compute_validation_metrics` was) and calling that.
+
+To diagnose a suspected hang: `sample <pid> 3 -mayDie` and look for `absl::Notification`
+under `TFE_Execute` on the main thread. A tell-tale sign is CPU time far below wall time
+(e.g. 10 s of CPU over 30 min).
 
 Still excluded: `tests/analyze/test_analyze.py` — 2 of its 6 tests
 (`test_analyze_with_real_custom_classifier[_and_species_list]`) need a
