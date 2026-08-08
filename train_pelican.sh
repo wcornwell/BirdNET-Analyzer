@@ -62,15 +62,35 @@ KEEP_AIRPLANE_SIREN=false
 USER_SET_PREFIXES=false
 TRAIN_DATA="/Users/z3484779/Library/CloudStorage/OneDrive-UNSW/call_library/reallybig"
 EXPECT_LIBRARY=false
+SPECIES_LIST=""
+UNLISTED="non_event"
+EXPECT_SPECIES_LIST=false
+EXPECT_UNLISTED=false
 EXTRA_ARGS=()
 for arg in "$@"; do
     # --library takes a value, so consume the token after it rather than passing it on.
     if $EXPECT_LIBRARY; then
         TRAIN_DATA="$arg"; EXPECT_LIBRARY=false; continue
     fi
+    # --species_list / --unlisted are captured (not just passed through) so the banner
+    # can report the site scoping, the same way --library is.
+    if $EXPECT_SPECIES_LIST; then
+        SPECIES_LIST="$arg"; EXPECT_SPECIES_LIST=false
+        EXTRA_ARGS+=(--species_list "$arg"); continue
+    fi
+    if $EXPECT_UNLISTED; then
+        UNLISTED="$arg"; EXPECT_UNLISTED=false
+        EXTRA_ARGS+=(--unlisted "$arg"); continue
+    fi
     case "$arg" in
         --library)
             EXPECT_LIBRARY=true
+            ;;
+        --species_list)
+            EXPECT_SPECIES_LIST=true
+            ;;
+        --unlisted)
+            EXPECT_UNLISTED=true
             ;;
         --report-helpers)
             HELPERS_AS_NONEVENTS=false
@@ -92,7 +112,16 @@ for arg in "$@"; do
     esac
 done
 $EXPECT_LIBRARY && { echo "Error: --library needs a directory." >&2; exit 1; }
+$EXPECT_SPECIES_LIST && { echo "Error: --species_list needs a file." >&2; exit 1; }
+$EXPECT_UNLISTED && { echo "Error: --unlisted needs non_event or drop." >&2; exit 1; }
 [[ -d "$TRAIN_DATA" ]] || { echo "Error: training library not found: $TRAIN_DATA" >&2; exit 1; }
+if [[ -n "$SPECIES_LIST" ]]; then
+    [[ -f "$SPECIES_LIST" ]] || { echo "Error: species list not found: $SPECIES_LIST" >&2; exit 1; }
+    case "$UNLISTED" in
+        non_event|drop) ;;
+        *) echo "Error: --unlisted must be non_event or drop (got: $UNLISTED)" >&2; exit 1 ;;
+    esac
+fi
 
 # Inject the default non-event prefixes unless the user opted out or set them explicitly.
 if $HELPERS_AS_NONEVENTS && ! $USER_SET_PREFIXES; then
@@ -133,6 +162,16 @@ elif $HELPERS_AS_NONEVENTS; then
     fi
 else
     echo "Helpers:  Environment_*/Homo sapiens_* = positive reported classes (--report-helpers)"
+fi
+if [[ -n "$SPECIES_LIST" ]]; then
+    N_SPECIES=$(grep -cvE '^\s*(#|$)' "$SPECIES_LIST" || true)
+    if [[ "$UNLISTED" == "non_event" ]]; then
+        echo "Species:  $(basename "$SPECIES_LIST") ($N_SPECIES entries); unlisted classes = non-events (hard negatives)"
+    else
+        echo "Species:  $(basename "$SPECIES_LIST") ($N_SPECIES entries); unlisted classes DROPPED (not trained on)"
+    fi
+else
+    echo "Species:  all classes in the library (no --species_list)"
 fi
 echo ""
 

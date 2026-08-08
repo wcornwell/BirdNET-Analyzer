@@ -1025,6 +1025,26 @@ def train_parser():
         'when they match a --non_event_prefixes prefix (e.g. "Homo sapiens_Airplane,Homo sapiens_Siren").',
     )
     parser.add_argument(
+        "--species_list",
+        default="",
+        help="Path to a species list restricting TRAINING to a subset of the library's "
+        "classes, for a site-scoped recognizer: one scientific binomial per line, '#' "
+        "comments ignored, matched case-insensitively against each class folder's "
+        "'Genus species' prefix. Helper/non-event folders are never filtered by it. "
+        "Note this is the training vocabulary; analyze's --slist restricts what an "
+        "already-trained model reports.",
+    )
+    parser.add_argument(
+        "--unlisted",
+        choices=["non_event", "drop"],
+        default="non_event",
+        help="What to do with library classes absent from --species_list. 'non_event' "
+        "keeps their audio as all-zero hard negatives with no output neuron, so they "
+        "still suppress the retained species; 'drop' excludes them entirely, which is "
+        "faster but leaves the retained classes with nothing to be suppressed by. "
+        "Ignored without --species_list.",
+    )
+    parser.add_argument(
         "--model_formats",
         nargs="+",
         default=["tflite"],

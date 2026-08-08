@@ -34,6 +34,8 @@ def train(
     upsampling_mode: UPSAMPLING_MODES = "repeat",
     non_event_prefixes: str = "",
     keep_as_class: str = "",
+    species_list: str = "",
+    unlisted: str = "non_event",
     model_formats: list[TRAINED_MODEL_OUTPUT_FORMATS]
     | TRAINED_MODEL_OUTPUT_FORMATS = "tflite",
     model_save_mode: TRAINED_MODEL_SAVE_MODES = "replace",
@@ -126,6 +128,22 @@ def train(
     cfg.NON_EVENT_KEEP_CLASSES = [
         c.strip() for c in keep_as_class.split(",") if c.strip()
     ]
+
+    # Site-scoped training: restrict the vocabulary to one species list, read the same
+    # way by both the folder and the cache path in train.utils.
+    if species_list:
+        from birdnet_analyzer.train.utils import load_species_list
+
+        cfg.TRAIN_SPECIES_LIST = load_species_list(species_list)
+        cfg.TRAIN_SPECIES_LIST_FILE = species_list
+
+        if not cfg.TRAIN_SPECIES_LIST:
+            raise ValueError(f"Species list is empty: {species_list}")
+    else:
+        cfg.TRAIN_SPECIES_LIST = []
+        cfg.TRAIN_SPECIES_LIST_FILE = ""
+
+    cfg.UNLISTED_HANDLING = unlisted
 
     train_model(
         audio_input,

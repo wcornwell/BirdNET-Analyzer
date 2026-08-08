@@ -51,6 +51,22 @@ NON_EVENT_PREFIXES: list[str] = []
 # like "Homo sapiens_Airplane" you still want reported).
 NON_EVENT_KEEP_CLASSES: list[str] = []
 
+# Scientific binomials (lowercase) restricting training to a subset of the library's
+# classes -- a site-scoped recognizer trained off the shared library. Matched against
+# each class folder's "Genus species" prefix. Empty by default (train on everything);
+# set via --species_list. Helper/non-event folders are never filtered by this list.
+TRAIN_SPECIES_LIST: list[str] = []
+
+# Path of the file TRAIN_SPECIES_LIST was read from, recorded in the run's params file
+# so a site recognizer's scoping is recoverable from its artifacts.
+TRAIN_SPECIES_LIST_FILE: str = ""
+
+# How to treat library classes absent from TRAIN_SPECIES_LIST. "non_event" keeps their
+# audio as all-zero hard negatives with no output neuron (they still suppress the
+# retained species); "drop" excludes them entirely. Only consulted when
+# TRAIN_SPECIES_LIST is non-empty. Set via --unlisted.
+UNLISTED_HANDLING: str = "non_event"
+
 UPSAMPLING_MODES = Literal["repeat", "mean", "smote"]
 TRAINED_MODEL_OUTPUT_FORMATS = Literal["tflite", "raven", "detached"]
 TRAINED_MODEL_SAVE_MODES = Literal["replace", "append"]

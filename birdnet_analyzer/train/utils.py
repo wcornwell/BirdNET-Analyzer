@@ -27,6 +27,139 @@ from birdnet_analyzer.config import (
 from birdnet_analyzer.model_utils import GLOBAL_PREFETCH_RATIO
 
 
+def scientific_prefix(label: str) -> str:
+    """The 'Genus species' part of a 'Genus species_Common Name' folder, lowercased."""
+    return label.split("_", 1)[0].strip().lower()
+
+
+def load_species_list(path: str) -> list[str]:
+    """Read a species list: one binomial per line, '#' comments and blanks skipped.
+
+    The same format `training_runs/lib/common.sh::derive_species_list` writes and
+    `perch-head/scripts/extract_embeddings.py` consumes, so one file can scope both
+    arms of a dual run. Returned lowercase for case-insensitive matching.
+    """
+    with open(path) as f:
+        return [
+            line.strip().lower()
+            for line in f
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+
+def _is_helper_class(label: str) -> bool:
+    """True for the configured helper folders (Environment_*, Homo sapiens_*, Noise).
+
+    Deliberately species-list independent so `is_non_event` and `is_selected_species`
+    can both consult it without recursing into one another. Note this includes the
+    NON_EVENT_KEEP_CLASSES carve-outs: they are reported classes, but they are still
+    helpers, and a species list of binomials must never filter them out.
+    """
+    if label.lower() in cfg.NON_EVENT_CLASSES:
+        return True
+    if label in cfg.NON_EVENT_KEEP_CLASSES:
+        return True
+    return any(label.startswith(p) for p in cfg.NON_EVENT_PREFIXES)
+
+
+def is_selected_species(label: str) -> bool:
+    """True if a class belongs in a site-scoped run's vocabulary.
+
+    Everything is selected when no species list is configured, so the filter is inert
+    by default. Helper folders are always selected: they have no binomial prefix
+    ("Environment_Rain" -> "environment"), so filtering them on a species list would
+    silently delete the non-event hard negatives the species classes depend on.
+    """
+    if not cfg.TRAIN_SPECIES_LIST:
+        return True
+    if _is_helper_class(label):
+        return True
+    return scientific_prefix(label) in cfg.TRAIN_SPECIES_LIST
+
+
+def _scope_cache_to_species_list(
+    x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label
+):
+    """Narrow an already-extracted cache to a site's species list.
+
+    This is what makes a recognizer per site cheap: embedding the library is
+    site-independent, so it is paid once and every site is then a column slice of
+    y_train. A clip whose only positive class was dropped becomes an all-zero row --
+    which is exactly the non-event encoding -- so "non_event" mode is the slice alone
+    and needs no re-extraction. "drop" mode additionally discards those rows.
+
+    Rows already all-zero in the cache are the helper/non-event hard negatives. They
+    are kept in both modes, which is why the drop mask is built from rows that were
+    positive *before* the slice rather than from the sliced result.
+    """
+    if not cfg.TRAIN_SPECIES_LIST:
+        return x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label
+
+    labels = [str(label) for label in labels]
+    _warn_unmatched_species({scientific_prefix(label) for label in labels})
+
+    keep = [i for i, label in enumerate(labels) if is_selected_species(label)]
+
+    if not keep:
+        raise ValueError(
+            "The species list matched none of the cache's classes "
+            f"({len(labels)} available). Wrong list, or a cache built from a "
+            "different library?"
+        )
+
+    scoped_labels = [labels[i] for i in keep]
+
+    def scope(x, y):
+        if y.size == 0:
+            return x, y
+        was_positive = y.any(axis=1)
+        y = y[:, keep]
+
+        if cfg.UNLISTED_HANDLING == "drop":
+            orphaned = was_positive & ~y.any(axis=1)
+            return x[~orphaned], y[~orphaned]
+
+        return x, y
+
+    x_train, y_train = scope(x_train, y_train)
+    x_test, y_test = scope(x_test, y_test)
+
+    logger.info(
+        "Species list: %d of %d cached classes kept (%s mode), %d training samples.",
+        len(scoped_labels),
+        len(labels),
+        cfg.UNLISTED_HANDLING,
+        len(x_train),
+    )
+
+    return (
+        x_train,
+        y_train,
+        x_test,
+        y_test,
+        scoped_labels,
+        len(scoped_labels) == 1,
+        is_multi_label and len(scoped_labels) > 1,
+    )
+
+
+def _warn_unmatched_species(available: set[str]) -> None:
+    """Warn about species-list entries with no matching class in the library.
+
+    A typo silently shrinks a site-scoped recognizer by one species, which in the
+    field looks like a species that simply never calls. Loud here; the orchestrator
+    preflight turns the same check into a hard failure before a long run starts.
+    """
+    missing = sorted(set(cfg.TRAIN_SPECIES_LIST) - available)
+
+    if missing:
+        logger.warning(
+            "%d species-list entries have no class in the training library: %s",
+            len(missing),
+            ", ".join(missing),
+        )
+
+
 def is_non_event(label: str) -> bool:
     """True if a folder label is a hard-negative non-event (no output neuron).
 
@@ -34,12 +167,22 @@ def is_non_event(label: str) -> bool:
     name starts with a configured NON_EVENT_PREFIXES prefix, unless it is listed in
     NON_EVENT_KEEP_CLASSES (kept as a positive, reportable class). Reads config
     dynamically because NON_EVENT_PREFIXES/NON_EVENT_KEEP_CLASSES are set at train time.
+
+    With a species list configured and UNLISTED_HANDLING == "non_event", species
+    outside the list also land here: they keep suppressing the retained species as
+    hard negatives instead of being thrown away.
     """
     if label.lower() in cfg.NON_EVENT_CLASSES:
         return True
     if label in cfg.NON_EVENT_KEEP_CLASSES:
         return False
-    return any(label.startswith(p) for p in cfg.NON_EVENT_PREFIXES)
+    if any(label.startswith(p) for p in cfg.NON_EVENT_PREFIXES):
+        return True
+    return (
+        bool(cfg.TRAIN_SPECIES_LIST)
+        and cfg.UNLISTED_HANDLING == "non_event"
+        and not is_selected_species(label)
+    )
 
 # Internal batch size the encoding pipeline uses per inference call. On CPU the tflite
 # model resizes its input tensor whenever the batch shape changes, so small batches are
@@ -218,9 +361,32 @@ def _load_training_data(
     """
 
     if audio_input.endswith(".npz"):
-        return _load_from_cache(audio_input)
+        return _scope_cache_to_species_list(*_load_from_cache(audio_input))
 
     train_folders = list(utils.list_subdirectories(audio_input))
+
+    if cfg.TRAIN_SPECIES_LIST:
+        _warn_unmatched_species(
+            {
+                scientific_prefix(part)
+                for folder in train_folders
+                for part in folder.split(",")
+            }
+        )
+
+        # "drop" mode: unlisted classes are excluded before anything else, so their
+        # audio is never scanned or decoded. Filtering here rather than at the
+        # load_data() gate means is_binary/is_multi_label below and the --test_data
+        # folder intersection further down -- all of which read train_folders directly
+        # -- pick the narrowed set up for free. In "non_event" mode the folders stay:
+        # is_non_event() turns them into all-zero hard negatives instead.
+        if cfg.UNLISTED_HANDLING == "drop":
+            train_folders = [
+                folder
+                for folder in train_folders
+                if any(is_selected_species(part.strip()) for part in folder.split(","))
+            ]
+
     labels: list[str] = []
 
     for folder in train_folders:
@@ -236,7 +402,9 @@ def _load_training_data(
     valid_labels = [
         label
         for label in labels
-        if not is_non_event(label) and not label.startswith("-")
+        if not is_non_event(label)
+        and not label.startswith("-")
+        and is_selected_species(label)
     ]
     is_binary = len(valid_labels) == 1
     is_multi_label = len(valid_labels) > 1 and any("," in f for f in train_folders)
@@ -316,7 +484,14 @@ def _load_training_data(
                 folder_labels = folder.split(",")
 
                 for label in folder_labels:
-                    if not is_non_event(label) and not label.startswith("-"):
+                    # `label in valid_labels` also covers the species-list case: a kept
+                    # "A,B" folder where only A is listed leaves B without a column, and
+                    # an unguarded valid_labels.index(B) would raise.
+                    if (
+                        not is_non_event(label)
+                        and not label.startswith("-")
+                        and label in valid_labels
+                    ):
                         label_vector[valid_labels.index(label)] = 1
                     elif label.startswith("-") and label[1:] in valid_labels:
                         # Negative labels need to be contained in the valid labels
@@ -814,6 +989,14 @@ def train_model(
                 # helper mode is recoverable from the params file (fork addition).
                 "Non-event prefixes": ", ".join(cfg.NON_EVENT_PREFIXES),
                 "Non-event keep classes": ", ".join(cfg.NON_EVENT_KEEP_CLASSES),
+                # Which species list scoped this run, and what happened to the classes
+                # it left out. Without these a site recognizer's vocabulary is only
+                # recoverable by diffing its _Labels.txt against the library.
+                "Species list": cfg.TRAIN_SPECIES_LIST_FILE,
+                "Species list entries": len(cfg.TRAIN_SPECIES_LIST),
+                "Unlisted handling": (
+                    cfg.UNLISTED_HANDLING if cfg.TRAIN_SPECIES_LIST else ""
+                ),
                 "BirdNET model version": "2.4",
             },
         )
