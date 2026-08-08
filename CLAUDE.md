@@ -420,6 +420,55 @@ Override any parameter by appending flags: `./train_pelican.sh pelican0-11 --epo
 
 Appended flags are passed straight through to `birdnet_analyzer.train`, and argparse uses the last value, so an appended `--epochs 100` overrides the baked-in `--epochs 50`. Note: only flag-style overrides work — don't append a bare positional like `cache.npz`, since `train` accepts a single positional (`INPUT`, already set to the reallybig library) and a second one errors out. `train_pelican.sh` needs no cache — it passes the `reallybig` folder and the loader extracts embeddings inline. The `--cache_file` / `--cache_mode` flags still exist (they came in with the birdnet-library core and now live on `main`); the refactor's cache path only triggers when `INPUT` is a cache file, so the inline route is unaffected.
 
+### Site-scoped recognizers — `--species_list` / `--unlisted` (added 2026-08-08)
+
+A recognizer per site (Wild Deserts, Smiths Lake) trained off the one shared `reallybig`,
+without copying class folders — copies desync, since a clip fixed in `reallybig` never
+reaches them.
+
+```bash
+./train_pelican.sh wilddeserts0-1 --species_list /path/to/wilddeserts.txt
+./train_pelican.sh wilddeserts0-1 --species_list /path/to/wilddeserts.txt --unlisted drop
+```
+
+Format: one scientific binomial per line, `#` comments ignored, matched case-insensitively
+against each class folder's `Genus species` prefix. Same file `derive_species_list`
+(`training_runs/lib/common.sh`) writes and `perch-head`'s `train_head.py --species-list`
+takes, so one list scopes both arms of a dual run.
+
+| `--unlisted` | unlisted classes | cost |
+|---|---|---|
+| `non_event` (default) | audio kept, all-zero rows, no output neuron — still suppress the retained species | full library decoded |
+| `drop` | never scanned or decoded | subset-sized |
+
+**Which is better for field FP rate is not measured yet** — see `training_runs/CLAUDE.md`
+§ "Open threads". `non_event` is the default because it is conservative, not because it won.
+
+**Two paths, and the cache one is what makes a model per site cheap:**
+
+- **Cache (primary)** — `_scope_cache_to_species_list` slices `y_train`'s columns. A row
+  whose only positive class was dropped becomes all-zero, which *is* the non-event
+  encoding, so `non_event` mode is the slice alone. Extract the library once
+  (`--save_cache_to`), then every additional site is a column slice, not a re-decode.
+- **Folder (fallback)** — `drop` filters `train_folders` at discovery, so `is_binary`,
+  `is_multi_label` and the `--test_data` intersection all narrow for free; `non_event`
+  leaves the folders in place and lets `is_non_event()` demote them.
+
+⚠️ **Helper folders are exempt from the filter.** `Environment_Rain` has no binomial
+(`scientific_prefix` → `environment`), so filtering it on a species list would silently
+delete the non-event hard negatives the species classes depend on. `--keep_as_class`
+carve-outs stay reported classes.
+
+⚠️ **Not the same flag as `analyze --slist`.** That restricts what an *already-trained*
+model reports (and is a genuinely useful, zero-retraining way to cut FPs — it masks output
+via `species_ids_whitelist`, works with a custom classifier, and wants full label strings
+like `Acanthiza pusilla_Brown Thornbill`, not bare binomials). `train --species_list`
+restricts what gets *trained*.
+
+Provenance lands in `<name>.birdnet.train-params.csv` as `Species list` /
+`Species list entries` / `Unlisted handling`; `_Labels.txt` is the authoritative resolved
+class set. **Inert by default** — no list, no filtering, identical label set.
+
 ### Helper classes as non-events (DEFAULT in `train_pelican.sh`)
 
 > **Dual-arm run contract:** `training_runs/CLAUDE.md` (the `run_dual.sh` orchestrator) relies on
