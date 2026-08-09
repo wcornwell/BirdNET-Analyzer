@@ -18,6 +18,53 @@ fork **editable** — whichever branch is checked out here is what it gets. Keep
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
 
+### Stray local data — CLEARED 2026-08-09, keep it that way
+
+The repo had ~1.55 GB of untracked field data and analysis output dating from before the project
+was organized into sibling repos. **All of it has been migrated out and deleted.** The repo is now
+only code + `birdnet_analyzer/` checkpoints. **Do not let audio, selection tables, or run outputs
+accumulate here again** — everything below has a home in `call_library`.
+
+| Was here | Size | Where it went |
+|---|---|---|
+| `sl1_segments/` | 904M | **deleted** — see the audition verdict below |
+| `sl1/` | 353M | 3 wavs were byte-identical dupes of `testing_soundscapes/smithslake_hours/trial1_wavs/` → deleted; unique `.m4a` + `key_log` moved |
+| `smithslakeoutput/` | 220M | R project; `.m4a`×2, key_logs, selection tables, `processing_script.R` extracted → `smithslake_hours/`; `Archive.zip` was a redundant zip of itself |
+| `testing/` | 48M | `letnicaug_24` + `myhour` recognizers (**were nowhere else**) → `recognizers/` |
+| `cc_output/` | 20M | 730 selection tables → `smithslake_hours/run_records_2024-10_1STSMM2/` |
+| `sl1_output/` | 5.7M | selection tables → `run_records_2025-08/selection_tables/` |
+
+⚠️ **`cc_output` was NOT reproducible and was nearly deleted as if it were.** Its 730 tables span
+2024-10-18 → 2024-11-23 from recorder `1STSMM2`, and **those source recordings exist nowhere** in
+`call_library` or `ecoacoustics` (the `First Smiths Lake Trip` folders hold `SL21_`/`SL25_2026*`
+from a later trip). The tables are the only surviving record of that run, so they were preserved.
+**Check for the source audio before calling any selection-table folder "reproducible".**
+
+⚠️ **OneDrive placeholders will fake a checksum mismatch.** Verifying the `sl1` wavs against their
+migrated copies first reported `DIFFERS` on two 130–170 MB files *with identical byte sizes* —
+because the remote copies were dataless cloud stubs (`stat -f%b` → `0 blocks`) and `shasum` read
+them mid-hydration. Re-hashing after forcing hydration (`cat file > /dev/null`, then confirm
+`stat -f%b` is non-zero) gave **IDENTICAL** for all three. **Before trusting any hash/diff against
+`call_library`, check `stat -f%b` — `0` means you are hashing a stub, not the file.**
+
+**Audition verdict on `sl1_segments` (asked and answered 2026-08-09): nothing was worth adding to
+`reallybig`.** It was `birdnet_analyzer.segments` output from a 2025-08-28 run — 1,962 clips, 28
+folders, capped 100/species. Three reasons it was all deleted:
+1. **All 28 species were already in `reallybig` and none were data-poor.** Thinnest was Eastern
+   Shrike-tit at 115 clips, above the library's p10 of 79 (distribution: min 33, p10 79, median
+   160, p90 312, max 910, n=448).
+2. **It was the *global* BirdNET model's output, not a pelican's** — folders were bare en_US
+   common names (`Gray Shrikethrush`, `Scarlet Myzomela`) rather than `reallybig`'s
+   `Genus species_Common Name`. That naming shape is a **useful tell for which model produced a
+   segments folder.**
+3. **Confidence-capped at 100/species with the caps saturated at ~1.000** — a model's most
+   confident hits on well-covered species is self-training material: no new information, real
+   label-noise risk.
+
+**General rule this establishes:** the informative output of an analysis run is its *mistakes and
+low-confidence tail*, not its confident hits. For label-quality work use
+`curation/identify_misclassifications.py` on embeddings, not a high-confidence segments dump.
+
 Full ownership table, seams, venvs, shared data: **`~/Documents/ecoacoustics/ECOACOUSTICS.md`**.
 
 ## Repo structure
@@ -28,6 +75,24 @@ This is a fork of [birdnet-team/BirdNET-Analyzer](https://github.com/birdnet-tea
 git remote upstream  → https://github.com/birdnet-team/BirdNET-Analyzer.git
 git remote origin    → https://github.com/wcornwell/BirdNET-Analyzer.git
 ```
+
+### `.git` size — ~1.2 GB is the floor, anything above that is garbage
+
+**~1.18 GB of it is packed upstream history you cannot remove:** every BirdNET model binary ever
+committed (V1.0→V2.4, each in tflite FP32/FP16/INT8 plus SavedModel `variables.data-*`) — the
+largest single blob is 69 MB. Shrinking it means rewriting history, which severs shared history
+with `upstream` and breaks every future merge. **Don't.**
+
+**Anything beyond that is loose-object garbage and should be collected.** On 2026-08-09 `.git`
+was 2.4 GB: 1.24 GB of it was 1,977 **unreachable** blobs — big WAV soundscapes, a `.3gp`, a
+379 MB raw float array — `git add`-ed into the index and later unstaged, never committed (zero
+dangling commits). This is the residue of local analysis data staged before commit `447b650`
+gitignored it. `git gc --prune=now` reclaimed all of it (2.4 GB → 1.2 GB, 8 packs → 1, `fsck`
+clean).
+
+⚠️ **Auto-gc will never clean this up on its own.** It triggers on loose-object *count* (default
+6,700) and these files are enormous but few (~2,100). So this recurs silently every time large
+audio gets staged by accident. **If `.git` is much over 1.2 GB, run `git gc --prune=now`.**
 
 ## Branch strategy
 
@@ -112,6 +177,13 @@ no longer a long-lived staging branch to route through.
 **The only remaining branch is `main`.** Anything else you see is a `remotes/upstream/*`
 feature branch belonging to the upstream project, not ours.
 
+⚠️ **`git branch -a` lies about this — it shows ~24 phantom `remotes/origin/*` branches.** They
+are **stale local tracking refs** for branches long since deleted on GitHub and never pruned
+(`birdnet-lib`, `upsampling-fix`, `sync-upstream-refactor`, …). Cleared with
+`git remote prune origin` on 2026-08-09, and `bodangora-library-flag` (merged, tip `0e5556a`,
+already in `main`) deleted from origin the same day. **`origin` now has exactly `main` and
+`gh-pages`.** Use `git ls-remote --heads origin` for ground truth — never `git branch -a`.
+
 **Syncing `main` with upstream — now a plain merge** (the TFLite divergence that made this
 dangerous is gone):
 ```bash
@@ -155,6 +227,68 @@ helpers correctly neuron-less non-events); `--keep_as_class "Homo sapiens_Airpla
 unnecessary** here: upstream's diff is GUI/logging/Docker by theme and touches `model.py` by only
 −11 lines, so there is no plausible species-quality surface — unlike the core swap, which needed
 all 5 phases.
+
+**Upstream sync — IN PROGRESS 2026-08-09, PARKED on `upstream-sync-2026-08` (`f82d4fb`),
+NOT merged to `main`.** The 6 commits `62def02..a61872f` (through #971) merged on a throwaway
+branch off `main`, local only, never pushed. `main` is unchanged at `abf3b01`.
+
+```
+a61872f  Update for the training data preprocessing (#968)   <- the only one that matters
+082f040  Update params (#971)
+de0bd50  Eval revisited (#970)
+1d75285  CI model cache (#969)
+a14e20a  training checks for folder before creating params file
+c3ddf4b  Updated docker for macOS (#967)
+```
+
+38 files, +2131/−1039, but most is inert for us (GUI evaluation tab, 9 `lang/*.json`, docs, CI,
+new tests). **#968 is the exception and is why this one is parked rather than fast-forwarded:**
+it rewrites `random_split`, `random_multilabel_split`, `upsample_core` and `upsampling` in
+`model.py` — i.e. it lands directly on the fork feature layer.
+
+**4 conflicts, all resolved:**
+- **3× CI workflows** (`ci.yml`, `documentation.yml`, `lint.yml`) — took upstream wholesale.
+  They conflicted only because our side's diff from the merge base was *downgrades*
+  (`checkout@v6`→`v4`, `setup-python@v6`→`v5`) plus YAML reflow — an earlier merge had resolved
+  these by keeping the fork's stale side. Nothing fork-specific was ever in them. **Future syncs:
+  just take upstream for `.github/workflows/*`.**
+- **1× `model.py`**, one 10-line region in `upsample_core`'s binary branch. **Upstream's rewrite
+  subsumes our `added_count` fix** — the new code computes `missing_samples = min_samples -
+  len(source_indices)` per class group, which is exactly the per-class counting our fix added to
+  replace the shared `len(y_temp)` counter. Upstream arrived at the same correctness
+  independently, so our patch is now redundant: **resolved by taking upstream, and the fork no
+  longer carries an `added_count` fix.** ⚠️ Trap: git auto-merged our `added_count += 1` *outside*
+  the conflict region — left in place it is a `NameError` on every binary upsampling run. Removed.
+- **The upsampling summary printout auto-merged cleanly** into the new vectorized `upsampling`,
+  and the validation-metrics block was untouched.
+
+**One bug fixed on top of the merge:** #968 changed `min_samples` from `y.sum(axis=0)` to
+`(y == 1).sum(axis=0)`. That is a real fix, not cosmetics — `train/utils.py:526` encodes
+multi-label negative labels as **-1**, so a plain sum understates class size. Our upsampling
+summary still used `y.sum(axis=0)`, which would both under-report counts and disagree with the
+target it prints. Aligned to `(y == 1)`.
+
+**Three upstream behavior changes to be aware of (deliberate upstream moves, not merge damage):**
+1. **Pre-split shuffle removed** — the unconditional shuffle before `random_split` is now
+   `else`-only (no shuffle when `val_split > 0`), compensated by `shuffle=True` in `model.fit`.
+2. **Post-upsampling shuffle removed** — upsampled duplicates now sit contiguously at the tail.
+3. `_check_input_folders` (new, `train/utils.py`) **hard-fails training on any class folder with
+   no supported audio file.** Worth a dry check against `reallybig` before a full run — an
+   on-demand-unmaterialized OneDrive folder would now abort a run that previously proceeded.
+
+⚠️ **(1) and (2) change the train/val partition for a given seed, so pelican numbers are NOT
+seed-comparable across this merge.** Combined with the upsampling rewrite, this needs a
+**full-`reallybig` train + `soundscape-eval` score before `main` fast-forwards** — the subset
+smoke that #962 got is not sufficient here.
+
+**Blocked on:** `.venv` has lost its `[tests]`/`[dev]` extras (80 packages, **no `pytest`, no
+`ruff`**), so the merge is unvalidated beyond a syntax check. Reinstall with
+`.venv/bin/pip install -e ".[train,tests,dev]"` — but note this venv is shared infrastructure
+(see the header warning), so confirm before touching it.
+
+⚠️ **While a sync branch is checked out, `soundscape-eval` sees it** (editable install → whatever
+branch is checked out here). **Return to `main` whenever you park mid-sync**; this branch was left
+parked with `main` checked out and the tree clean.
 
 ### Merging the refactor into `main` — testing plan (formulated 2026-07-20; **EXECUTED 2026-07-22, all phases passed → `main` swapped, commit `1d2ac30`**)
 
@@ -384,11 +518,23 @@ Install deps:
 .venv/bin/pip install -e ".[train,tests]"
 ```
 
+⚠️ **As of 2026-08-09 the `.venv` has NO `[tests]`/`[dev]` extras** — 80 packages, but
+**`.venv/bin/pytest` and `.venv/bin/ruff` do not exist** (`python -m ruff` also fails). So you
+cannot run the suite or lint until it is reinstalled:
+
+```bash
+.venv/bin/pip install -e ".[train,tests,dev]"
+```
+
+This is why the 2026-08-09 upstream sync is parked unvalidated. **Check for `pytest` before
+promising a test run.** Remember this venv is shared infrastructure (see the header warning) —
+sibling repos invoke it by absolute path, so confirm before changing what's installed in it.
+
 Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships in the
 `dev` extra; run `.venv/bin/ruff check <files>` before committing. ⚠️ The `pyproject.toml`
-pin is **`0.15.10`** as of the 2026-07-23 upstream sync, but the installed `.venv` still has
-**`0.14.0`** (clean under it). Upgrade with `.venv/bin/pip install "ruff==0.15.10"` if a CI
-lint difference ever bites.
+pin is **`0.15.10`** as of the 2026-07-23 upstream sync; the last version actually installed in
+`.venv` was **`0.14.0`** (clean under it), but it is currently absent altogether — a reinstall
+will now pull `0.15.10`, so expect first-run lint differences.
 
 ---
 
