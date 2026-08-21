@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Train a pelican recognizer on the reallybig call library.
 #
-# BRANCH NOTE: this is the `refactor-to-main-trial` port of main's train_pelican.sh.
-# It runs on the birdnet-library training loader (upstream refactor + #939 speedup),
-# not main's TFLite pipeline. Flags and hyperparameters are identical to main's version
-# so the two produce comparable models for the Phase 4 A/B (see CLAUDE.md testing plan).
-# Embeddings are still extracted inline from the reallybig folder (no cache step); the
-# refactor's cache path only triggers when INPUT is a cache file.
+# LOADER NOTE: this runs on the birdnet-library training loader (upstream refactor +
+# #939 speedup). That loader IS `main`: the refactor was adopted as main's core in
+# `1d2ac30` (2026-07-22) and the `refactor-to-main-trial` / `sync-upstream-refactor`
+# staging branches were deleted the day after -- see CLAUDE.md, "merged into `main`,
+# both DELETED". The pre-refactor TFLite core survives only as tag `pre-refactor-main`.
+# Embeddings are still extracted inline from the library folder (no cache step); the
+# cache path only triggers when INPUT is a cache file.
 #
 # Usage:
 #   ./train_pelican.sh pelican0-10
@@ -151,7 +152,23 @@ done
 echo "Training: $NAME"
 echo "Data:     $TRAIN_DATA"
 echo "Output:   $OUTPUT_DIR/$NAME"
-echo "Loader:   birdnet-library (refactor + #939)   [branch: refactor-to-main-trial]"
+# Report the checkout that is ACTUALLY training this model, rather than a branch name
+# baked in when the line was written -- that one outlived its branch by a month. It is
+# load-bearing beyond this log: soundscape-eval imports this repo editable, so whatever
+# is checked out here is what trains the recognizer AND what later scores it.
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+GIT_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+if [[ -n "$GIT_SHA" ]]; then
+    GIT_BRANCH="$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [[ -n "$(git -C "$REPO_DIR" status --porcelain 2>/dev/null)" ]]; then
+        GIT_DESC="$GIT_BRANCH @ $GIT_SHA +uncommitted changes"
+    else
+        GIT_DESC="$GIT_BRANCH @ $GIT_SHA"
+    fi
+else
+    GIT_DESC="not a git checkout"
+fi
+echo "Loader:   birdnet-library (refactor + #939)   [$GIT_DESC]"
 if $USER_SET_PREFIXES; then
     echo "Helpers:  per explicit --non_event_prefixes"
 elif $HELPERS_AS_NONEVENTS; then
