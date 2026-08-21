@@ -1,5 +1,7 @@
 """Module containing audio helper functions."""
 
+import threading
+from contextlib import contextmanager
 from math import isclose
 
 import librosa
@@ -10,6 +12,31 @@ from scipy.signal import find_peaks, lfilter
 import birdnet_analyzer.config as cfg
 
 RANDOM = np.random.RandomState(cfg.RANDOM_SEED)
+
+# libsndfile's MPEG decoder is not thread-safe: two concurrent sf_open() calls on mp3
+# files race inside mpeg_init and the process dies with SIGBUS, jumping through a
+# garbage function pointer (EXC_ARM_DA_ALIGN at 0x1). The training loader decodes with
+# a ThreadPoolExecutor, so any library holding mp3s can take the whole run down --
+# reproduced at 12 crashes in 20 runs over reallybig's 99 mp3s, and it is what killed
+# run0-8 on 2026-08-21 nine minutes in.
+#
+# Serialise only the MPEG opens. Every other format keeps decoding fully in parallel,
+# so the cost is bounded by how many mp3s a library actually holds (99 of 84,471 here).
+# NOTE: pre-warming libsndfile's lazy init on one thread before the pool starts was
+# tried first and is NOT sufficient -- still 6 crashes in 20. The unsafety is in the
+# concurrent opens themselves, not only in initialisation.
+_MPEG_SUFFIXES = (".mp3", ".mp2", ".mp1")
+_MPEG_OPEN_LOCK = threading.Lock()
+
+
+@contextmanager
+def mpeg_safe_open(path):
+    """Serialise libsndfile opens for MPEG files; a no-op for every other format."""
+    if str(path).lower().endswith(_MPEG_SUFFIXES):
+        with _MPEG_OPEN_LOCK:
+            yield
+    else:
+        yield
 
 
 def open_audio_file(
@@ -43,20 +70,22 @@ def open_audio_file(
     """
     # Open file with librosa (uses ffmpeg or libav)
     if speed == 1.0:
-        sig, rate = librosa.load(
-            path,
-            sr=sample_rate,
-            offset=offset,
-            duration=duration,
-            mono=True,
-            res_type="kaiser_fast",
-        )
+        with mpeg_safe_open(path):
+            sig, rate = librosa.load(
+                path,
+                sr=sample_rate,
+                offset=offset,
+                duration=duration,
+                mono=True,
+                res_type="kaiser_fast",
+            )
 
     else:
         # Load audio with original sample rate
-        sig, rate = librosa.load(
-            path, sr=None, offset=offset, duration=duration, mono=True
-        )
+        with mpeg_safe_open(path):
+            sig, rate = librosa.load(
+                path, sr=None, offset=offset, duration=duration, mono=True
+            )
 
         # Resample with "fake" sample rate
         sig = librosa.resample(
@@ -86,7 +115,8 @@ def get_audio_info(path):
         dict: A dictionary containing audio file information such as sample rate and
         duration.
     """
-    info = sf.info(path)
+    with mpeg_safe_open(path):
+        info = sf.info(path)
 
     return {
         "samplerate": info.samplerate,
@@ -106,7 +136,8 @@ def get_audio_file_length(path):
     """
     # Open file with librosa (uses ffmpeg or libav)
 
-    return librosa.get_duration(path=path, sr=None)  # ty:ignore[invalid-argument-type]
+    with mpeg_safe_open(path):
+        return librosa.get_duration(path=path, sr=None)  # ty:ignore[invalid-argument-type]
 
 
 def get_sample_rate(path: str):
@@ -119,7 +150,8 @@ def get_sample_rate(path: str):
     Returns:
         int: The sample rate of the audio file.
     """
-    return librosa.get_samplerate(path)
+    with mpeg_safe_open(path):
+        return librosa.get_samplerate(path)
 
 
 def save_signal(sig, fname: str, rate=48000):
