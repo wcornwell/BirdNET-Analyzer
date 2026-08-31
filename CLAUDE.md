@@ -995,8 +995,16 @@ Weaknesses to fix:
    all-class R 0.942). Takes effect on the next retrain (pelican0-15+).
 3. **Non-event classes are excluded from the metric** (no column) but their clips
    still penalize species precision as false positives — good, keep.
-4. **Verify no train/val leakage from `repeat` upsampling** (if duplication happens
-   before the split, the same clip lands in both → inflated recall).
+4. ~~**Verify no train/val leakage from `repeat` upsampling**~~ **CHECKED 2026-08-31 — it
+   does NOT leak.** The split runs FIRST and upsampling receives only the training half:
+   `model.py:672/676` (`random_split` / `random_multilabel_split`) then `:681`
+   (`upsampling(x_train, y_train, ...)`). A duplicated clip therefore cannot reach
+   validation. Worth having settled, since every pelican run upsamples
+   (`--upsampling_mode repeat --upsampling_ratio 0.4` in `train_pelican.sh`), so a leak
+   here would have inflated the recall in every `_validation_metrics.csv` we have.
+   **Upstream keeps the same order** (`upstream/main` `model.py:517/521` then `:531`), so
+   the parked #968 rewrite does not put this at risk — re-check only if the *call order* in
+   `train_model` ever changes, not merely because the upsampling internals do.
 
 ---
 
