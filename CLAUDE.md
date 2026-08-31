@@ -11,9 +11,18 @@ fork per backbone — the library itself never does.
 evaluation (→ `soundscape-eval`), or embedding *analysis/visualisation* (→ `birdnetEmbed`).
 
 ⚠️ **Its `.venv` is shared infrastructure.** `Training_library_assembly_pipeline/curation/`
-and `soundscape-eval` both invoke it by absolute path, and `soundscape-eval` imports this
-fork **editable** — whichever branch is checked out here is what it gets. Keep this on
-`main` when others are running evals.
+invokes it by absolute path. Keep this on `main` when others are running evals.
+
+**`soundscape-eval` no longer depends on it for most work (2026-08-31).** It vendored the two
+audio helpers it used, moved checkpoint resolution to `find_spec` (which never executes this
+package), and declares its own deps — so `pip install -e "soundscape-eval[birdnet30]"` scores
+BirdNET 3.0 and any raw-audio recognizer with **no engine and no TensorFlow**. It still needs
+an editable install of this fork for the **Perch** paths and **bare-head** recognizers, and
+that install must be on `main` (whichever branch is checked out is what it gets).
+
+**Why that decoupling had to happen:** BirdNET 3.0 needs `birdnet==1.1.0`; this fork pins
+`birdnet<1`. One environment cannot hold both, and bumping THIS venv would break training for
+every sibling. **Do not bump `.venv` to birdnet 1.1.0 to make 3.0 work.**
 
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
@@ -227,6 +236,44 @@ helpers correctly neuron-less non-events); `--keep_as_class "Homo sapiens_Airpla
 unnecessary** here: upstream's diff is GUI/logging/Docker by theme and touches `model.py` by only
 −11 lines, so there is no plausible species-quality surface — unlike the core swap, which needed
 all 5 phases.
+
+**Upstream status checked 2026-08-31: `main` is 23 commits behind `upstream/main`
+(`240dbb4` vs `d5fea55`) — a MAJOR release, and the 6 parked below are its first 6.** The
+parked `upstream-sync-2026-08` branch is superseded; restart a sync from `main` (its conflict
+resolutions are still useful as reference).
+
+What the release is: BirdNET **3.0** becomes the default acoustic model, inference moves to
+**ONNX**, `birdnet` is pinned **0.2.16 -> 1.1.0**, Python 3.11+ required, `--sensitivity`
+becomes a no-op on 3.0, and the trained-classifier default output path becomes CWD-relative
+(harmless — `train_pelican.sh` passes an explicit `-o`). **Training and custom classifiers
+stay on the 2.4 base**, so the pelican pipeline is not on 3.0's path. See upstream's new
+`docs/breaking-changes.rst`.
+
+Merge mechanics are EASY; the risk is the dependency bump. A `git merge-tree` dry run gives 9
+conflicting files: 5 CI workflows (take upstream, as established), `CLAUDE.md` (upstream now
+ships its own — keep ours), and 3 one-region conflicts in `__init__.py` (our TF env-var block
+vs upstream's `apply_model_directory()` — needs BOTH, TF vars first), `model.py` (the same
+`added_count` region the parked branch already resolved by taking upstream) and
+`train/utils.py` (adjacency around our species-list block). **The whole fork feature layer
+survives auto-merge** — verified in the merged tree: `NON_EVENT_*`, `CODES_FILE`,
+`TRAIN_SPECIES_LIST`/`UNLISTED_HANDLING`, all four CLI flags, `compute_validation_metrics`
+with the species/non_target split, `is_non_event`/`is_selected_species`, and
+`model_utils.get_embeddings_array_with_session`.
+
+⚠️ **Upstream dropped `resampy` from `pyproject.toml` but `audio.py` still calls
+`librosa.load(..., res_type="kaiser_fast")` in two places** (verified on `upstream/main`). A
+clean install therefore raises `ModuleNotFoundError: resampy` the moment anything touches
+`open_audio_file` — which our training and embedding-extraction paths do. **Re-add `resampy`
+to the fork's deps when merging.** Found the hard way: it killed the first BirdNET 3.0
+scoring run.
+
+✅ **`birdnet_analyzer.config` and `birdnet_analyzer.audio` both import cleanly under
+birdnet 1.1.0** (tested in an isolated venv), so that part of the bump is less scary than it
+looks. Unknown is everything downstream of `model_utils`'s session API.
+
+**Still the gate before `main` fast-forwards:** the parked #968 notes below (pre-split and
+post-upsampling shuffle removal) mean pelican numbers are NOT seed-comparable across this
+merge, so it needs a full-`reallybig` train + `soundscape-eval` score, not a subset smoke.
 
 **Upstream sync — IN PROGRESS 2026-08-09, PARKED on `upstream-sync-2026-08` (`f82d4fb`),
 NOT merged to `main`.** The 6 commits `62def02..a61872f` (through #971) merged on a throwaway
@@ -518,17 +565,19 @@ Install deps:
 .venv/bin/pip install -e ".[train,tests]"
 ```
 
-⚠️ **As of 2026-08-09 the `.venv` has NO `[tests]`/`[dev]` extras** — 80 packages, but
-**`.venv/bin/pytest` and `.venv/bin/ruff` do not exist** (`python -m ruff` also fails). So you
-cannot run the suite or lint until it is reinstalled:
+✅ **RESOLVED 2026-08-31 — the extras are back.** 212 packages; `.venv/bin/pytest` and
+`.venv/bin/ruff` (0.14.0) both exist, and the suite runs **530 passed / 2 skipped**. The
+2026-08-09 note that this venv had lost `[tests]`/`[dev]` (80 packages, no pytest, no ruff)
+no longer holds, so **"the parked sync is unvalidated because the venv can't test" is no
+longer a reason** — it is parked on its merits alone.
+
+Still true, and still the reason to check before changing it: this venv is shared
+infrastructure (see the header warning), sibling repos invoke it by absolute path. Reinstall
+shape if ever needed:
 
 ```bash
 .venv/bin/pip install -e ".[train,tests,dev]"
 ```
-
-This is why the 2026-08-09 upstream sync is parked unvalidated. **Check for `pytest` before
-promising a test run.** Remember this venv is shared infrastructure (see the header warning) —
-sibling repos invoke it by absolute path, so confirm before changing what's installed in it.
 
 Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships in the
 `dev` extra; run `.venv/bin/ruff check <files>` before committing. ⚠️ The `pyproject.toml`
