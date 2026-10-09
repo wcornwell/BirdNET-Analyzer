@@ -771,6 +771,7 @@ def train_linear_classifier(
     threshold = 0.5  # adjust if you use a different operating point
     y_pred = (y_prob >= threshold).astype(int)
 
+
     # Index → label mapping: prefer `labels` arg from train_linear_classifier,
     # fall back to cfg.LABELS, then index-based names
     per_class, summaries = compute_validation_metrics(
