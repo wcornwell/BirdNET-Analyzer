@@ -15,6 +15,7 @@ from birdnet_analyzer.analyze.core import (
 from birdnet_analyzer.gui.state import TabState
 
 MATPLOTLIB_FIGURE_NUM = "single-file-tab-spectrogram-plot"
+MAX_TABLE_ROWS = 50
 HEADER_START_LBL = loc.localize("single-tab-output-header-start")
 HEADER_END_LBL = loc.localize("single-tab-output-header-end")
 HEADER_SCI_NAME_LBL = loc.localize("single-tab-output-header-sci-name")
@@ -44,6 +45,7 @@ def run_single_file_analysis(
     selected_model,
     custom_classifier_file,
     locale,
+    progress=gr.Progress(),
 ):
     from datetime import timedelta
 
@@ -80,7 +82,7 @@ def run_single_file_analysis(
         save_params=False,
         n_producers=1,
         n_workers=1,
-        progress=None,
+        progress=progress,
     )
 
     def convert_to_time_str(seconds: float) -> str:
@@ -90,6 +92,20 @@ def run_single_file_analysis(
         return time_str
 
     table = predictions.to_dataframe()
+    n_total = table.shape[0]
+
+    if n_total > MAX_TABLE_ROWS:
+        # nlargest has no float16 kernel
+        table["confidence"] = table["confidence"].astype("float32")
+        table = table.nlargest(MAX_TABLE_ROWS, "confidence").sort_values(
+            ["start_time", "end_time"]
+        )
+        gr.Warning(
+            loc.localize("single-tab-results-truncated-warning").format(
+                shown=MAX_TABLE_ROWS, total=n_total
+            )
+        )
+
     n_rows = table.shape[0]
 
     if n_rows > 0:
@@ -233,6 +249,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             elem_id="single-file-output",
             interactive=False,
             buttons=[],
+            visible=False,
         )
 
         def select_and_load_audio_file(generate_spectrogram=False):
@@ -248,10 +265,8 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
 
             if file_path:
                 try:
-                    # Load the entire audio file
                     data, sr = audio.open_audio_file(file_path)
 
-                    # Generate spectrogram if requested
                     spectrogram = (
                         gr.update(
                             visible=True,
@@ -283,7 +298,6 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                         loc.localize("single-tab-generate-spectrogram-error")
                     ) from e
 
-            # No file selected
             return (
                 gr.update(),
                 gr.update(),
@@ -435,6 +449,10 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             get_selected_audio, inputs=audio_path_state, outputs=segment_audio
         )
         single_file_analyze.click(
+            lambda: gr.update(visible=True),
+            outputs=output_dataframe,
+            show_progress="hidden",
+        ).then(
             run_single_file_analysis,
             inputs=inputs,
             outputs=[output_dataframe, action_row, last_prediction_state],

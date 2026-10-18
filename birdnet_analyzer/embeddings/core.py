@@ -100,7 +100,6 @@ def embeddings(
     )
     deployment_id = _ensure_deployment(db)
 
-    # Iterate over files and segments in the encoding result.
     seg_dur = result.segment_duration_s
     seg_overlap = result.overlap_duration_s
     step = seg_dur - seg_overlap
@@ -127,11 +126,9 @@ def embeddings(
             s_start = j * step
             s_end = s_start + seg_dur
 
-            # Skip segments whose start is beyond the actual file duration
             if s_start >= file_dur:
                 continue
 
-            # Clamp end to actual file duration
             s_end = min(s_end, file_dur)
 
             windows_batch.append(

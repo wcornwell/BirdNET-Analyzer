@@ -4,28 +4,39 @@ import gradio as gr
 
 import birdnet_analyzer.gui.localization as loc
 import birdnet_analyzer.gui.utils as gu
-from birdnet_analyzer import settings
+from birdnet_analyzer import config, settings
 from birdnet_analyzer.gui.state import TabState
 
 
 @gu.gui_runtime_error_handler
 def run_species_list(
-    out_path, filename, lat, lon, week, use_yearlong, sf_thresh, locale
+    out_path,
+    filename,
+    lat,
+    lon,
+    week,
+    use_yearlong,
+    sf_thresh,
+    locale,
+    progress=gr.Progress(),
 ):
     from birdnet_analyzer.species.core import species
 
     gu.validate(out_path, loc.localize("validation-no-directory-selected"))
 
-    species(
-        output=os.path.join(out_path, filename or "species_list.txt"),
-        lat=lat,
-        lon=lon,
-        week=None if use_yearlong else week,
-        sf_thresh=sf_thresh,
-        locale=locale,
-    )
+    with gu.download_progress(progress):
+        species(
+            output=os.path.join(out_path, filename or "species_list.txt"),
+            lat=lat,
+            lon=lon,
+            week=None if use_yearlong else week,
+            sf_thresh=sf_thresh,
+            locale=locale,
+        )
 
     gr.Info(f"{loc.localize('species-tab-finish-info')} {out_path}")
+
+    return gr.update()
 
 
 def build_species_tab() -> gu.TAB_BUILDER_RESULT:
@@ -93,12 +104,21 @@ def build_species_tab() -> gu.TAB_BUILDER_RESULT:
             map_plot,
         ) = gu.species_list_coordinates(state, show_map=True)
 
-        locale = gu.locale(state)
+        # The species list comes from the geo model (always v3.0), so offer its
+        # languages; an unsupported locale is coerced to English at load time anyway.
+        locale = gu.locale(state, config.GEO_MODEL_LANGUAGES)
 
         start_btn = gr.Button(
             loc.localize("species-tab-start-button-label"), variant="primary"
         )
+        progress_placeholder = gr.Plot(
+            show_label=False, visible=False, elem_id="species-progress-placeholder"
+        )
         start_btn.click(
+            lambda: gr.update(visible=True),
+            outputs=progress_placeholder,
+            show_progress="hidden",
+        ).then(
             run_species_list,
             inputs=[
                 output_directory_state,
@@ -110,6 +130,11 @@ def build_species_tab() -> gu.TAB_BUILDER_RESULT:
                 sf_thresh_number,
                 locale,
             ],
+            outputs=progress_placeholder,
+        ).then(
+            lambda: gr.update(visible=False),
+            outputs=progress_placeholder,
+            show_progress="hidden",
         )
 
     species_tab.select(

@@ -12,11 +12,9 @@ if TYPE_CHECKING:
     from birdnet.acoustic.inference.core.perf_tracker import (
         AcousticProgressStats,
     )
-    from birdnet.acoustic.inference.core.prediction.prediction_result import (
-        AcousticResultBase,
-    )
     from birdnet.globals import ACOUSTIC_MODEL_VERSIONS, MODEL_LANGUAGES
 
+    from birdnet_analyzer.analyze.resume import RunMetadata
     from birdnet_analyzer.config import ADDITIONAL_COLUMNS, RESULT_TYPES
 
 
@@ -25,7 +23,7 @@ def analyze(
     output: str | None = None,
     *,
     model: str = "birdnet",
-    birdnet: ACOUSTIC_MODEL_VERSIONS = "2.4",
+    birdnet: ACOUSTIC_MODEL_VERSIONS = "3.0",
     min_conf: float = 0.25,
     classifier: str | None = None,
     cc_species_list: str | None = None,
@@ -49,6 +47,7 @@ def analyze(
     additional_columns: list[ADDITIONAL_COLUMNS] | None = None,
     on_update: Callable[[AcousticProgressStats], None] | None = None,
     split_tables: bool = False,
+    strict_species_list: bool = False,
     save_params: bool = False,
     show_progress: bool = False,
     _return_only=False,
@@ -70,8 +69,9 @@ def analyze(
         week (int, optional): Week of the year for seasonal filtering. Defaults to -1.
         slist (str | None, optional): Path to a species list file for filtering.
             Defaults to None.
-        sensitivity (float, optional): Sensitivity of the detection algorithm.
-            Defaults to 1.0.
+        sensitivity (float, optional): Sensitivity of the detection algorithm; only
+            applies to BirdNET 2.4 and custom classifiers, ignored (with a warning)
+            for BirdNET 3.0 and Perch. Defaults to 1.0.
         overlap (float, optional): Overlap between analysis windows in seconds.
             Defaults to 0.
         fmin (int, optional): Minimum frequency for analysis in Hz. Defaults to 0.
@@ -96,6 +96,10 @@ def analyze(
             Defaults to False.
         split_tables (bool, optional): Whether to split output tables by input files.
             Defaults to False.
+        strict_species_list (bool, optional): If True, raise when a species in ``slist``
+            is not in the model. If False (default), such species are matched to the
+            model by scientific/common name where possible and any that remain unknown
+            are skipped with a warning. Only affects a user-provided ``slist``.
     Returns:
         None
     Raises:
@@ -103,54 +107,48 @@ def analyze(
     Notes:
         - The function ensures the BirdNET model is available before analysis.
         - Analysis parameters are saved to a file in the output directory.
+        - Directory analyses are resumable: per-file results are journaled to
+          ``<output>/.birdnet-resume/`` as they complete, an interrupted run
+          picks up where it left off (if the analysis parameters match), and
+          the journal is removed after outputs are written. When resuming a
+          run that had already completed every file, no new inference happens
+          and ``None`` is returned instead of a prediction result.
     """
     import birdnet_analyzer.config as cfg
-    from birdnet_analyzer.model_utils import run_geomodel, run_inference
+    from birdnet_analyzer.analyze.resume import ResumeJournal, RunMetadata
+    from birdnet_analyzer.model_utils import (
+        effective_sensitivity,
+        run_geomodel,
+        run_inference,
+        validate_min_conf,
+    )
     from birdnet_analyzer.utils import save_params_file
+
+    # Settled before the params file, result columns and resume fingerprint see it.
+    sensitivity = effective_sensitivity(sensitivity, model, birdnet, classifier)
+    validate_min_conf(min_conf)
 
     species_list_file = slist if isinstance(slist, (str, Path)) else ""
     rtypes: list[RESULT_TYPES] = [rtype] if isinstance(rtype, str) else rtype
-
-    if lat is not None and lon is not None:
-        if slist is not None:
-            raise ValueError(
-                "Cannot use both location (lat/lon) and custom species list (slist) "
-                "together."
-            )
-
-        slist = run_geomodel(
-            lat, lon, week=week, language=locale, threshold=sf_thresh
-        ).to_set()
-
-    predictions = run_inference(
-        audio_input,
+    resume_params = _resume_fingerprint_params(
+        audio_input=audio_input,
         model=model,
-        top_k=top_n,
-        batch_size=batch_size,
-        prefetch_ratio=3,
-        overlap_duration_s=overlap,
-        bandpass_fmin=fmin,
-        bandpass_fmax=fmax,
-        sigmoid_sensitivity=sensitivity,
-        speed=audio_speed,
-        min_confidence=min_conf,
-        custom_species_list=slist,
-        label_language=locale,
+        birdnet=birdnet,
+        min_conf=min_conf,
         classifier=classifier,
         cc_species_list=cc_species_list,
-        version=birdnet,
-        callback=on_update,
-        n_workers=n_workers,
-        n_producers=n_producers,
-    )
-
-    if _return_only:
-        return predictions
-
-    audio_input_path: Path = Path(audio_input)
-    df = predictions.to_dataframe()
-    df = _merge_consecutive_segments(
-        df, merge_consecutive, hop_size=predictions.hop_duration_s
+        lat=lat,
+        lon=lon,
+        week=week,
+        slist=slist,
+        sensitivity=sensitivity,
+        overlap=overlap,
+        fmin=fmin,
+        fmax=fmax,
+        audio_speed=audio_speed,
+        top_n=top_n,
+        sf_thresh=sf_thresh,
+        locale=locale,
     )
 
     if not output:
@@ -159,6 +157,88 @@ def analyze(
         else:
             output = audio_input
 
+    species_from_location = lat is not None and lon is not None
+
+    if species_from_location:
+        if slist is not None:
+            raise ValueError(
+                "Cannot use both location (lat/lon) and custom species list (slist) "
+                "together."
+            )
+
+        # The geo model uses its own taxonomy; run_inference reconciles it to the
+        # acoustic model by scientific name (language-independent), so the geo label
+        # language is left at the default.
+        slist = run_geomodel(lat, lon, week=week, threshold=sf_thresh).to_set()
+
+    # For directory analyses, journal per-file results so an interrupted run can
+    # resume: already-stored files are skipped, the rest analyzed and persisted.
+    journal = None
+    input_files: list[Path] = []
+    inference_input = audio_input
+
+    if not _return_only and os.path.isdir(audio_input):
+        from birdnet.acoustic.inference.configs import InferenceConfig
+
+        input_files = InferenceConfig.validate_input_files(audio_input)
+        journal = ResumeJournal.open(
+            output, resume_params, n_files_total=len(input_files)
+        )
+        completed = journal.completed_subset(input_files)
+        inference_input = [f for f in input_files if f not in completed]
+
+    predictions = None
+
+    if inference_input:
+        predictions = run_inference(
+            inference_input,
+            model=model,
+            top_k=top_n,
+            batch_size=batch_size,
+            prefetch_ratio=3,
+            overlap_duration_s=overlap,
+            bandpass_fmin=fmin,
+            bandpass_fmax=fmax,
+            sigmoid_sensitivity=sensitivity,
+            speed=audio_speed,
+            min_confidence=min_conf,
+            custom_species_list=slist,
+            label_language=locale,
+            classifier=classifier,
+            cc_species_list=cc_species_list,
+            version=birdnet,
+            strict_species_list=strict_species_list,
+            callback=on_update,
+            n_workers=n_workers,
+            n_producers=n_producers,
+            on_file_complete=journal.on_file_complete if journal else None,
+        )
+
+    if _return_only:
+        return predictions
+
+    if predictions is not None:
+        meta = RunMetadata.from_result(predictions)
+        df = predictions.to_dataframe()
+    else:
+        # Everything was already completed earlier; build outputs from the journal.
+        meta = journal.metadata() if journal else None
+        df = None
+
+        if meta is None:
+            raise RuntimeError(
+                "Resume state in the output directory is incomplete. Delete "
+                f"'{Path(output) / '.birdnet-resume'}' and run the analysis again."
+            )
+
+    if journal is not None:
+        df = journal.combined_dataframe(df, input_files)
+
+    audio_input_path: Path = Path(audio_input)
+    df = _merge_consecutive_segments(
+        df, merge_consecutive, hop_size=meta.hop_duration_s
+    )
+
     if split_tables:
         _split_tables(
             df,
@@ -166,7 +246,7 @@ def analyze(
             Path(output),
             fmin,
             fmax,
-            predictions,
+            meta,
             audio_speed,
             rtypes,
             additional_columns,
@@ -184,8 +264,8 @@ def analyze(
                 df,
                 fmin,
                 fmax,
-                predictions.model_fmin,
-                predictions.model_fmax,
+                meta.model_fmin,
+                meta.model_fmax,
                 audio_speed,
                 Path(output) / cfg.OUTPUT_RAVEN_FILENAME,
             )
@@ -202,7 +282,7 @@ def analyze(
                 min_conf=min_conf,
                 sensitivity=sensitivity,
                 species_list_file=species_list_file,
-                model_path=predictions.model_path,
+                model_path=meta.model_path,
             )
 
         if "kaleidoscope" in rtypes:
@@ -223,7 +303,7 @@ def analyze(
                 min_conf=min_conf,
                 sensitivity=sensitivity,
                 species_list_file=species_list_file,
-                model_path=predictions.model_path,
+                model_path=meta.model_path,
             )
 
     if save_params:
@@ -232,8 +312,8 @@ def analyze(
             {
                 "Model": model,
                 "BirdNET version": birdnet,
-                "Segment length": predictions.segment_duration_s,
-                "Sample rate": predictions.model_sr,
+                "Segment length": meta.segment_duration_s,
+                "Sample rate": meta.model_sr,
                 "Segment overlap": overlap,
                 "Bandpass filter minimum": fmin,
                 "Bandpass filter maximum": fmax,
@@ -261,7 +341,30 @@ def analyze(
             },
         )
 
+    if journal is not None:
+        journal.finalize()
+
     return predictions
+
+
+def _resume_fingerprint_params(**params) -> dict:
+    """Normalize the parameters that identify a resumable run.
+
+    Only parameters that affect which detections are produced belong here;
+    output formatting (rtype, merge_consecutive, split_tables, ...) may change
+    between an interrupted run and its resume.
+    """
+    slist = params["slist"]
+
+    if slist is None or isinstance(slist, (str, Path)):
+        params["slist"] = str(slist) if slist is not None else None
+    else:
+        params["slist"] = sorted(map(str, slist))
+
+    params["audio_input"] = os.path.normcase(
+        os.path.normpath(os.path.abspath(params["audio_input"]))
+    )
+    return params
 
 
 def _split_tables(
@@ -270,7 +373,7 @@ def _split_tables(
     output: Path,
     bandpass_fmin: int,
     bandpass_fmax: int,
-    predictions: AcousticResultBase,
+    meta: RunMetadata,
     audio_speed: float,
     rtypes: Sequence[str],
     additional_columns,
@@ -297,8 +400,8 @@ def _split_tables(
                 df_file,
                 bandpass_fmin,
                 bandpass_fmax,
-                predictions.model_fmin,
-                predictions.model_fmax,
+                meta.model_fmin,
+                meta.model_fmax,
                 audio_speed,
                 output / (file_shorthand + ".BirdNET.selection.table.txt"),
             )
@@ -315,7 +418,7 @@ def _split_tables(
                 min_conf=min_conf,
                 sensitivity=sensitivity,
                 species_list_file=species_list_file,
-                model_path=predictions.model_path,
+                model_path=meta.model_path,
             )
 
         if "kaleidoscope" in rtypes:
@@ -340,7 +443,7 @@ def _split_tables(
                 min_conf=min_conf,
                 sensitivity=sensitivity,
                 species_list_file=species_list_file,
-                model_path=predictions.model_path,
+                model_path=meta.model_path,
             )
 
 
@@ -517,7 +620,6 @@ def save_as_rtable(
         acumulated_start_times.append(row[1]["Begin Time (s)"] + accumulated_time)
         accumulated_end_times.append(row[1]["End Time (s)"] + accumulated_time)
 
-    # Reordering
     cols = [
         "Selection",
         "Begin Time (s)",

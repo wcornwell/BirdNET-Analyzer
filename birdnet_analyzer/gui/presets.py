@@ -26,8 +26,7 @@ from birdnet_analyzer import params, settings, utils
 if TYPE_CHECKING:
     from birdnet_analyzer.gui.state import TabState
 
-# The file entries of a preset. They belong to components that are deliberately not
-# persisted between sessions, so they live in the preset only.
+# Preset-only file entries; their components are deliberately not persisted.
 SPECIES_FILE_KEY = "species_list_file"
 CLASSIFIER_FILE_KEY = "custom_classifier_file"
 
@@ -364,8 +363,12 @@ def load_analysis_params(path: str) -> dict[str, Any]:
     elif kwargs.get("model") == "perch":
         values["model_selection_radio"] = _species_choice("use-perch")
     elif "model" in kwargs:
-        # Not localized, must match gui.utils._USE_BIRDNET_2_4.
-        values["model_selection_radio"] = "BirdNET 2.4"
+        # Not localized, must match gui.utils._USE_BIRDNET_2_4 / _USE_BIRDNET_3_0.
+        # Files written before 3.0 have no version and were always 2.4.
+        version = str(kwargs.get("birdnet", "2.4"))
+        values["model_selection_radio"] = (
+            "BirdNET 3.0" if version == "3.0" else "BirdNET 2.4"
+        )
 
     return values
 

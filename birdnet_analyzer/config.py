@@ -1,7 +1,20 @@
 import os
-from typing import Literal
+from typing import Literal, get_args
 
-from birdnet.globals import MODEL_LANGUAGE_EN_US, MODEL_LANGUAGES
+from birdnet.globals import (
+    ACOUSTIC_MODEL_VERSIONS,
+    GEO_MODEL_VERSIONS,
+    MODEL_LANGUAGE_EN_US,
+    MODEL_LANGUAGES,
+    VALID_MODEL_LANGUAGES_V2_4,
+    VALID_MODEL_LANGUAGES_V3_0,
+)
+
+
+def _newest_version(versions: tuple[str, ...]) -> str:
+    """Return the highest ``"<major>.<minor>"`` version from the given tuple."""
+    return max(versions, key=lambda v: tuple(int(part) for part in v.split(".")))
+
 
 # Set TensorFlow environment variables before any other imports
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -10,7 +23,25 @@ os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 RANDOM_SEED: int = 42
-MODEL_VERSION: str = "V2.4"
+
+# Default model versions, derived from what the installed birdnet ships so they track
+# the newest. Geo is never a choice: its newest version always replaces the older ones.
+DEFAULT_ACOUSTIC_MODEL_VERSION: str = _newest_version(get_args(ACOUSTIC_MODEL_VERSIONS))
+DEFAULT_GEO_MODEL_VERSION: str = _newest_version(get_args(GEO_MODEL_VERSIONS))
+
+# Languages each acoustic version can label predictions in. v2.4 and v3.0 differ, so
+# the CLI/GUI offer the union; birdnet validates the (version, language) pair on load.
+ACOUSTIC_MODEL_LANGUAGES: dict[str, list[str]] = {
+    "2.4": list(VALID_MODEL_LANGUAGES_V2_4),
+    "3.0": list(VALID_MODEL_LANGUAGES_V3_0),
+}
+ALL_MODEL_LANGUAGES: list[str] = sorted(
+    set(VALID_MODEL_LANGUAGES_V2_4) | set(VALID_MODEL_LANGUAGES_V3_0)
+)
+
+# Languages the newest geo model labels its species list in (v3.0 language set).
+GEO_MODEL_LANGUAGES: list[str] = list(VALID_MODEL_LANGUAGES_V3_0)
+
 SCORE_FUNCTIONS = Literal["cosine", "euclidean", "dot"]
 CROP_MODES = Literal["center", "first", "segments"]
 CODES_FILE: str = os.path.join(SCRIPT_DIR, "eBird_taxonomy_codes_2025E.json")
