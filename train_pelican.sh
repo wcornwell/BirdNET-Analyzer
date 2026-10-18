@@ -35,6 +35,14 @@
 #
 # --nonevent-helpers is still accepted as a no-op (it is now the default).
 #
+# BACKBONE: pinned to BirdNET 2.4 unless you pass --birdnet. Upstream's 3.0 training
+# work (branch 3.0-training-support) makes `train --birdnet` default to the NEWEST
+# model, so without this pin a plain `./train_pelican.sh <name>` would silently switch
+# to 3.0 embeddings the day that lands -- a different embedding space, and a head
+# incomparable with every earlier pelican. Moving to 3.0 has to be a choice:
+#   ./train_pelican.sh pelican3-0 --birdnet 3.0
+# On an engine without --birdnet (2.4-only training) the flag is checked, not passed.
+#
 # For other splits, pass --non_event_prefixes / --keep_as_class directly instead;
 # an explicit --non_event_prefixes overrides the baked-in default.
 
@@ -67,6 +75,8 @@ SPECIES_LIST=""
 UNLISTED="non_event"
 EXPECT_SPECIES_LIST=false
 EXPECT_UNLISTED=false
+BACKBONE="2.4"
+EXPECT_BACKBONE=false
 EXTRA_ARGS=()
 for arg in "$@"; do
     # --library takes a value, so consume the token after it rather than passing it on.
@@ -83,7 +93,13 @@ for arg in "$@"; do
         UNLISTED="$arg"; EXPECT_UNLISTED=false
         EXTRA_ARGS+=(--unlisted "$arg"); continue
     fi
+    if $EXPECT_BACKBONE; then
+        BACKBONE="$arg"; EXPECT_BACKBONE=false; continue
+    fi
     case "$arg" in
+        --birdnet)
+            EXPECT_BACKBONE=true
+            ;;
         --library)
             EXPECT_LIBRARY=true
             ;;
@@ -115,6 +131,7 @@ done
 $EXPECT_LIBRARY && { echo "Error: --library needs a directory." >&2; exit 1; }
 $EXPECT_SPECIES_LIST && { echo "Error: --species_list needs a file." >&2; exit 1; }
 $EXPECT_UNLISTED && { echo "Error: --unlisted needs non_event or drop." >&2; exit 1; }
+$EXPECT_BACKBONE && { echo "Error: --birdnet needs a version (2.4 or 3.0)." >&2; exit 1; }
 [[ -d "$TRAIN_DATA" ]] || { echo "Error: training library not found: $TRAIN_DATA" >&2; exit 1; }
 if [[ -n "$SPECIES_LIST" ]]; then
     [[ -f "$SPECIES_LIST" ]] || { echo "Error: species list not found: $SPECIES_LIST" >&2; exit 1; }
@@ -130,6 +147,23 @@ if $HELPERS_AS_NONEVENTS && ! $USER_SET_PREFIXES; then
     if $KEEP_AIRPLANE_SIREN; then
         EXTRA_ARGS+=(--keep_as_class "Homo sapiens_Airplane,Homo sapiens_Siren")
     fi
+fi
+
+# Does this engine's train() take a `birdnet` version? Parsed, not imported, so the
+# check costs nothing (importing would load TensorFlow).
+ENGINE_DIR="$(dirname "$0")"
+if python3 - "$ENGINE_DIR/birdnet_analyzer/train/core.py" <<'PY'
+import ast, sys
+tree = ast.parse(open(sys.argv[1]).read())
+train = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "train")
+names = [a.arg for a in train.args.args + train.args.kwonlyargs]
+sys.exit(0 if "birdnet" in names else 1)
+PY
+then
+    EXTRA_ARGS+=(--birdnet "$BACKBONE")
+elif [[ "$BACKBONE" != "2.4" ]]; then
+    echo "Error: this engine trains on BirdNET 2.4 only (no --birdnet in train); got --birdnet $BACKBONE." >&2
+    exit 1
 fi
 
 # focal-loss-gamma default is 2.0 (was 3.0): the Smiths Lake gamma sweep showed gamma=3
@@ -169,6 +203,7 @@ else
     GIT_DESC="not a git checkout"
 fi
 echo "Loader:   birdnet-library (refactor + #939)   [$GIT_DESC]"
+echo "Backbone: BirdNET $BACKBONE"
 if $USER_SET_PREFIXES; then
     echo "Helpers:  per explicit --non_event_prefixes"
 elif $HELPERS_AS_NONEVENTS; then

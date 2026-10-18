@@ -18,7 +18,9 @@
 #   4. the BirdNET 3.0 TRAINING WATCH: upstream ships "training does not support
 #      3.0" markers today; the moment they disappear from upstream/main, 3.0 training
 #      has (probably) landed, and it will land on the fork layer's files;
-#   5. the newest birdnet on PyPI vs upstream's pin, since 3.0 training may arrive
+#   5. unmerged upstream BRANCHES touching the training path (where 3.0 training
+#      actually showed up first), with what each would conflict on against <ref>;
+#   6. the newest birdnet on PyPI vs upstream's pin, since 3.0 training may arrive
 #      library-first.
 #
 # Changes nothing: fetches upstream, never checks out, merges or writes the tree.
@@ -84,6 +86,32 @@ else
     echo "  !! 3.0 training has probably landed -- read the incoming train/ and"
     echo "  !! model_utils.py changes before anything else; they hit the fork layer."
 fi
+
+echo
+echo "== Upstream branches in flight on the training path (last ${BRANCH_DAYS:=60} days)"
+# Upstream develops on feature branches and merges in one go (3.0 training sat on
+# 3.0-training-support before main ever mentioned it), so watching main alone gives
+# no warning. A branch is listed if it is unmerged, recent, and touches the files the
+# fork layer lives in; its conflicts are against $REF, i.e. what landing it would cost.
+since=$(date -v-"${BRANCH_DAYS}"d +%s 2>/dev/null || date -d "-${BRANCH_DAYS} days" +%s)
+found=0
+while read -r ref when; do
+    [[ "$ref" == "$UP" || "$ref" == upstream/gh-pages || "$ref" == upstream ]] && continue
+    [[ "$when" -lt "$since" ]] && continue
+    [[ -z "$(git rev-list -1 "$UP..$ref")" ]] && continue
+    touched=$(git diff --name-only "$UP...$ref" -- birdnet_analyzer/train birdnet_analyzer/model.py \
+        birdnet_analyzer/model_utils.py birdnet_analyzer/audio.py | tr '\n' ' ')
+    [[ -z "$touched" ]] && continue
+    found=1
+    echo "  ${ref#upstream/}  ($(git log -1 --format=%cs "$ref"), $(git rev-list --count "$UP..$ref") commits)"
+    echo "    touches: $touched"
+    if c=$(git merge-tree --write-tree --name-only --no-messages "$REF" "$ref"); then
+        echo "    vs $REF: merges clean"
+    else
+        echo "    vs $REF: conflicts in $(echo "$c" | tail -n +2 | tr '\n' ' ')"
+    fi
+done < <(git for-each-ref --format='%(refname:short) %(committerdate:unix)' refs/remotes/upstream)
+[[ "$found" -eq 0 ]] && echo "  none."
 
 echo
 echo "== birdnet library"
