@@ -20,9 +20,10 @@ BirdNET 3.0 and any raw-audio recognizer with **no engine and no TensorFlow**. I
 an editable install of this fork for the **Perch** paths and **bare-head** recognizers, and
 that install must be on `main` (whichever branch is checked out is what it gets).
 
-**Why that decoupling had to happen:** BirdNET 3.0 needs `birdnet==1.1.0`; this fork pins
-`birdnet<1`. One environment cannot hold both, and bumping THIS venv would break training for
-every sibling. **Do not bump `.venv` to birdnet 1.1.0 to make 3.0 work.**
+**Why that decoupling happened:** BirdNET 3.0 needed `birdnet==1.1.0` while this fork pinned
+`birdnet<1`. **Since the 2026-10-19 upstream sync `main` itself requires `birdnet==1.1.0`**
+(training still on the 2.4 base, gate passed — see Branch strategy), so the shared `.venv`
+is on 1.1.0 too. The `[birdnet30]` env remains the lightweight, engine-free way to score.
 
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
@@ -237,105 +238,94 @@ unnecessary** here: upstream's diff is GUI/logging/Docker by theme and touches `
 −11 lines, so there is no plausible species-quality surface — unlike the core swap, which needed
 all 5 phases.
 
-**Upstream status checked 2026-08-31: `main` is 23 commits behind `upstream/main`
-(`240dbb4` vs `d5fea55`) — a MAJOR release, and the 6 parked below are its first 6.** The
-parked `upstream-sync-2026-08` branch is superseded; restart a sync from `main` (its conflict
-resolutions are still useful as reference).
+**Upstream sync — DONE 2026-10-19 (branch `upstream-sync-2026-10`): the 3.0 release.** All 33
+commits `b1d866b..c2c71a1` (#967 → #1005), merged in two steps so #968 and the dependency bump
+landed as separate merge commits: `770803b` (through #968/#971) then `86d7f79` (3.0 + ONNX +
+`birdnet` 0.2.16 → **1.1.0** + soxr). The parked `upstream-sync-2026-08` (`f82d4fb`) had been
+garbage-collected; its resolutions were redone from these notes and are recorded below.
 
-What the release is: BirdNET **3.0** becomes the default acoustic model, inference moves to
-**ONNX**, `birdnet` is pinned **0.2.16 -> 1.1.0**, Python 3.11+ required, `--sensitivity`
-becomes a no-op on 3.0, and the trained-classifier default output path becomes CWD-relative
-(harmless — `train_pelican.sh` passes an explicit `-o`). **Training and custom classifiers
-stay on the 2.4 base**, so the pelican pipeline is not on 3.0's path. See upstream's new
-`docs/breaking-changes.rst`.
+What the release is: BirdNET **3.0** is the default *analysis* model (ONNX), `--sensitivity` is a
+no-op on 3.0, Python 3.11+, and the trained-classifier default output is CWD-relative (harmless —
+`train_pelican.sh` passes `-o`). **Training and custom classifiers stay on the 2.4 base** in this
+release. See upstream's `docs/breaking-changes.rst`.
 
-Merge mechanics are EASY; the risk is the dependency bump. A `git merge-tree` dry run gives 9
-conflicting files: 5 CI workflows (take upstream, as established), `CLAUDE.md` (upstream now
-ships its own — keep ours), and 3 one-region conflicts in `__init__.py` (our TF env-var block
-vs upstream's `apply_model_directory()` — needs BOTH, TF vars first), `model.py` (the same
-`added_count` region the parked branch already resolved by taking upstream) and
-`train/utils.py` (adjacency around our species-list block). **The whole fork feature layer
-survives auto-merge** — verified in the merged tree: `NON_EVENT_*`, `CODES_FILE`,
-`TRAIN_SPECIES_LIST`/`UNLISTED_HANDLING`, all four CLI flags, `compute_validation_metrics`
-with the species/non_target split, `is_non_event`/`is_selected_species`, and
-`model_utils.get_embeddings_array_with_session`.
+**Conflicts and how they were resolved (reuse for the next sync):**
+- `.github/workflows/*` — take upstream, always. Nothing fork-specific was ever in them.
+- `CLAUDE.md` — upstream ships its own now; keep ours (it conflicts every sync — see the open
+  follow-up below).
+- `__init__.py` — keep BOTH: our TF env-var block first, then upstream's `apply_model_directory()`.
+- `model.py` `upsample_core` binary branch — take upstream. #968's per-class
+  `missing_samples = min_samples - len(source_indices)` **subsumes our old `added_count` fix**, so
+  the fork no longer carries one. ⚠️ Trap: git auto-merges our `added_count += 1` *outside* the
+  conflict region — a `NameError` on every binary run. Delete it.
+- `audio.py` — keep our `mpeg_safe_open` lock around both `librosa.load` calls, take upstream's
+  `res_type="soxr_hq"`. (`resampy` is gone upstream and nothing here needs it any more.)
+- `train/utils.py` — adjacency only: keep our species-list / non-event block, take upstream's
+  shorter batch-size comment.
+- On top: our upsampling summary's `class_counts` aligned to `(y == 1).sum(axis=0)` (#968 made
+  `min_samples` count only `== 1`, because multi-label negatives are encoded **-1**).
 
-⚠️ **Upstream dropped `resampy` from `pyproject.toml` but `audio.py` still calls
-`librosa.load(..., res_type="kaiser_fast")` in two places** (verified on `upstream/main`). A
-clean install therefore raises `ModuleNotFoundError: resampy` the moment anything touches
-`open_audio_file` — which our training and embedding-extraction paths do. **Re-add `resampy`
-to the fork's deps when merging.** Found the hard way: it killed the first BirdNET 3.0
-scoring run.
+**Behaviour changes pulled in (deliberate upstream moves, not merge damage):**
+1. **#968: pre-split and post-upsampling shuffles removed** (compensated by `shuffle=True` in
+   `fit`) ⇒ the train/val partition for a given seed changed. **Pelican numbers are NOT
+   seed-comparable across this merge.**
+2. **#968: `_check_input_folders` hard-fails** on any class folder with no supported audio (an
+   unmaterialised OneDrive folder now aborts a run). It did not trip on `reallybig`.
+3. **#996: resampling `kaiser_fast` → `soxr_hq`.** Embeddings of clips recorded **below 32 kHz
+   shift** (100 non-48 kHz `reallybig` clips, same 2.4 backbone, old vs new loader — cosine
+   by source rate: 44.1/96 kHz 1.000, 32 kHz 0.998, 16 kHz 0.977, 24 kHz 0.959, **22.05 kHz
+   0.885, min 0.800**). The difference is in how the empty band above a low-rate file's Nyquist
+   is upsampled. ⇒ **embedding `.npz`/centroids extracted before 2026-10-19 are not
+   interchangeable with ones extracted after** for low-rate clips — re-extract rather than mix.
 
-✅ **`birdnet_analyzer.config` and `birdnet_analyzer.audio` both import cleanly under
-birdnet 1.1.0** (tested in an isolated venv), so that part of the bump is less scary than it
-looks. Unknown is everything downstream of `model_utils`'s session API.
+**Gate — PASSED 2026-10-19** (all in an isolated worktree `../BirdNET-sync` + its own venv, so
+the shared `.venv` and soundscape-eval kept seeing `main` throughout):
+- Tests **593 passed / 6 skipped** (all 6 = gradio GUI tests), ruff 0.15.10 clean.
+- Full-`reallybig` `run0-20-bn` (same recipe as `run0-19-bn`, 98,651 samples, 464 labels).
+  In-sample species macro P/R 0.9808/0.9332 vs 0.9800/0.9339; all Δ ≤ 0.0034. ⚠️ the library
+  itself moved between the two runs (1 rename, 14 classes topped up, incl. Treecreeper +168 and
+  Grey Butcherbird +188), a small confound.
+- soundscape-eval (`configs/{smithslake,fowlers}_run0-20.yaml`): Smiths Lake AUPRC 0.1933 vs
+  0.1930, bestF1 0.2486 vs 0.2480; Fowlers AUPRC 0.2152 vs 0.2175, bestF1 0.2693 vs 0.2718.
+  Signs flip between soundscapes, per-species churn symmetric (7↑/6↓ and 8↑/10↓ at |ΔAP|>0.01)
+  ⇒ seed noise, same verdict shape as Phase 4. Fowlers R@1FP/hr 0.179 vs 0.110 is Bustard-driven
+  (indicative only).
+- Smoke: `train_pelican.sh` default / `--report-helpers` / `--keep-airplane-siren` /
+  `--species_list … --unlisted drop` → 5 / 9 / 7 / 2 labels as expected, Airplane/Siren tagged
+  `non_target`; `extract_embeddings.py` (1024-d, `backbone_version=2.4`),
+  `extract_head_embeddings.py` (2048-d), `analyze --classifier`; soundscape-eval's Perch and
+  bare-head paths against the merged engine.
 
-**Still the gate before `main` fast-forwards:** the parked #968 notes below (pre-split and
-post-upsampling shuffle removal) mean pelican numbers are NOT seed-comparable across this
-merge, so it needs a full-`reallybig` train + `soundscape-eval` score, not a subset smoke.
+### BirdNET 3.0 TRAINING is coming — watch it, don't get caught by it
 
-**Upstream sync — IN PROGRESS 2026-08-09, PARKED on `upstream-sync-2026-08` (`f82d4fb`),
-NOT merged to `main`.** The 6 commits `62def02..a61872f` (through #971) merged on a throwaway
-branch off `main`, local only, never pushed. `main` is unchanged at `abf3b01`.
+Upstream branch **`3.0-training-support`** (5 commits, last 2026-10-17, "Fixes after review")
+adds `train --birdnet {2.4,3.0}` and bumps `birdnet>=1.3.0`; birdnet **1.3.1** on PyPI already
+loads custom classifiers trained on 3.0 (`birdnet/acoustic/models/custom_tflite.py`).
+- ⚠️ **On that branch `--birdnet` defaults to the NEWEST model (3.0).** `train_pelican.sh` now
+  pins `--birdnet 2.4` whenever the engine's `train()` takes the flag (detected by parsing
+  `train/core.py`, no TF import) and prints `Backbone:` in the banner; it errors on a non-2.4
+  request against a 2.4-only engine. **Moving pelicans to 3.0 must be explicit:**
+  `./train_pelican.sh run3-0-bn --birdnet 3.0`. A 3.0 head is a third embedding space —
+  incomparable with any 2.4 head, centroid or misclassification `.npz`.
+- Dry-merged onto the post-sync tree it conflicts in **only `model.py` and `train/utils.py`**,
+  both import lines + adjacency to our species-list block. Cheap to take.
 
-```
-a61872f  Update for the training data preprocessing (#968)   <- the only one that matters
-082f040  Update params (#971)
-de0bd50  Eval revisited (#970)
-1d75285  CI model cache (#969)
-a14e20a  training checks for folder before creating params file
-c3ddf4b  Updated docker for macOS (#967)
-```
+**Run `./check_upstream.sh` monthly (and at the start of a session here).** Read-only. It prints
+behind/ahead, a `merge-tree` conflict dry run, every incoming commit tagged RED (training / model
+/ audio / `model_utils` / birdnet pin → full train + soundscape-eval) · AMBER (config / cli /
+analyze / embeddings / deps → tests + subset smoke) · GREEN (GUI / docs / CI / lang → tests),
+whether upstream still marks 3.0 training unsupported, **unmerged upstream branches touching the
+training path** (that is where 3.0 training showed up first), and the birdnet pin vs PyPI.
+Merge GREEN/AMBER batches promptly; when a RED commit is in range, merge up to `<sha>^` first so
+only the RED part pays for the expensive gate.
 
-38 files, +2131/−1039, but most is inert for us (GUI evaluation tab, 9 `lang/*.json`, docs, CI,
-new tests). **#968 is the exception and is why this one is parked rather than fast-forwarded:**
-it rewrites `random_split`, `random_multilabel_split`, `upsample_core` and `upsampling` in
-`model.py` — i.e. it lands directly on the fork feature layer.
-
-**4 conflicts, all resolved:**
-- **3× CI workflows** (`ci.yml`, `documentation.yml`, `lint.yml`) — took upstream wholesale.
-  They conflicted only because our side's diff from the merge base was *downgrades*
-  (`checkout@v6`→`v4`, `setup-python@v6`→`v5`) plus YAML reflow — an earlier merge had resolved
-  these by keeping the fork's stale side. Nothing fork-specific was ever in them. **Future syncs:
-  just take upstream for `.github/workflows/*`.**
-- **1× `model.py`**, one 10-line region in `upsample_core`'s binary branch. **Upstream's rewrite
-  subsumes our `added_count` fix** — the new code computes `missing_samples = min_samples -
-  len(source_indices)` per class group, which is exactly the per-class counting our fix added to
-  replace the shared `len(y_temp)` counter. Upstream arrived at the same correctness
-  independently, so our patch is now redundant: **resolved by taking upstream, and the fork no
-  longer carries an `added_count` fix.** ⚠️ Trap: git auto-merged our `added_count += 1` *outside*
-  the conflict region — left in place it is a `NameError` on every binary upsampling run. Removed.
-- **The upsampling summary printout auto-merged cleanly** into the new vectorized `upsampling`,
-  and the validation-metrics block was untouched.
-
-**One bug fixed on top of the merge:** #968 changed `min_samples` from `y.sum(axis=0)` to
-`(y == 1).sum(axis=0)`. That is a real fix, not cosmetics — `train/utils.py:526` encodes
-multi-label negative labels as **-1**, so a plain sum understates class size. Our upsampling
-summary still used `y.sum(axis=0)`, which would both under-report counts and disagree with the
-target it prints. Aligned to `(y == 1)`.
-
-**Three upstream behavior changes to be aware of (deliberate upstream moves, not merge damage):**
-1. **Pre-split shuffle removed** — the unconditional shuffle before `random_split` is now
-   `else`-only (no shuffle when `val_split > 0`), compensated by `shuffle=True` in `model.fit`.
-2. **Post-upsampling shuffle removed** — upsampled duplicates now sit contiguously at the tail.
-3. `_check_input_folders` (new, `train/utils.py`) **hard-fails training on any class folder with
-   no supported audio file.** Worth a dry check against `reallybig` before a full run — an
-   on-demand-unmaterialized OneDrive folder would now abort a run that previously proceeded.
-
-⚠️ **(1) and (2) change the train/val partition for a given seed, so pelican numbers are NOT
-seed-comparable across this merge.** Combined with the upsampling rewrite, this needs a
-**full-`reallybig` train + `soundscape-eval` score before `main` fast-forwards** — the subset
-smoke that #962 got is not sufficient here.
-
-**Blocked on:** `.venv` has lost its `[tests]`/`[dev]` extras (80 packages, **no `pytest`, no
-`ruff`**), so the merge is unvalidated beyond a syntax check. Reinstall with
-`.venv/bin/pip install -e ".[train,tests,dev]"` — but note this venv is shared infrastructure
-(see the header warning), so confirm before touching it.
+**Open follow-ups:** move this file to `.claude/CLAUDE.md` so root `CLAUDE.md` tracks upstream
+and stops conflicting; and pull the fork layer (`compute_validation_metrics`, `is_non_event` /
+species-list helpers, the four train flags) out of `model.py` / `train/utils.py` / `cli.py` into
+a fork-owned module with one-line hooks — 3.0 training lands on exactly those files.
 
 ⚠️ **While a sync branch is checked out, `soundscape-eval` sees it** (editable install → whatever
-branch is checked out here). **Return to `main` whenever you park mid-sync**; this branch was left
-parked with `main` checked out and the tree clean.
+branch is checked out here). Do syncs in a separate worktree + venv, as above.
 
 ### Merging the refactor into `main` — testing plan (formulated 2026-07-20; **EXECUTED 2026-07-22, all phases passed → `main` swapped, commit `1d2ac30`**)
 
@@ -562,7 +552,7 @@ regression) pass. Phase 2 decides clean-swap vs costly-migration; Phase 3 is inf
 
 Install deps:
 ```bash
-.venv/bin/pip install -e ".[train,tests]"
+.venv/bin/pip install -e ".[train,embeddings,tests]"
 ```
 
 ✅ **RESOLVED 2026-08-31 — the extras are back.** 212 packages; `.venv/bin/pytest` and
@@ -576,7 +566,7 @@ infrastructure (see the header warning), sibling repos invoke it by absolute pat
 shape if ever needed:
 
 ```bash
-.venv/bin/pip install -e ".[train,tests,dev]"
+.venv/bin/pip install -e ".[train,embeddings,tests,dev]"
 ```
 
 Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships in the
@@ -1145,7 +1135,7 @@ Or via CLI:
 
 ```bash
 .venv/bin/pytest tests/ --timeout=120 -q --ignore=tests/analyze/test_analyze.py
-# 514 passed, 2 skipped in ~11 s (checked 2026-08-07; was 502 pre-validation-metrics tests)
+# 593 passed, 6 skipped in ~27 s (checked 2026-10-19, post-3.0 sync; needs the `embeddings` extra)
 ```
 
 ⚠️ **The suite runs in ~11 seconds. If it runs for minutes, it is DEADLOCKED, not slow** —
@@ -1169,8 +1159,8 @@ Still excluded: `tests/analyze/test_analyze.py` — 2 of its 6 tests
 (`test_analyze_with_real_custom_classifier[_and_species_list]`) need a
 `CustomClassifier.tflite` fixture that isn't in the repo (upstream issue); the other 4 pass.
 
-The 2 skips are `tests/gui/test_presets.py` and `tests/gui/test_state.py` — new upstream GUI
-tests that skip because `gradio` isn't installed in this `.venv` (we don't use the GUI).
+The 6 skips are all `tests/gui/` tests that skip because `gradio` isn't installed in this
+`.venv` (we don't use the GUI).
 Install the `gui-tests` extra if you ever need them.
 
 **Resolved by the 2026-07-23 upstream sync:** the old `perch_hoplite` `SQLiteUsearchDB`
