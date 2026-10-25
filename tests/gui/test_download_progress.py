@@ -1,5 +1,7 @@
 """The GUI shows the birdnet library's model downloads."""
 
+import contextlib
+
 import pytest
 
 gr = pytest.importorskip("gradio")
@@ -218,20 +220,10 @@ def _module(name):
 
 
 class _FakeDatabase:
-    """The metadata and close surface the embeddings and search handlers touch."""
-
-    class _Connection:
-        def close(self):
-            pass
-
-    def __init__(self):
-        self.db = self._Connection()
+    """The metadata surface the embeddings and search handlers read."""
 
     def get_metadata(self, key):
         return {"AUDIO_SPEED": 1.0, "BANDPASS_FMIN": 0, "BANDPASS_FMAX": 15000}
-
-    def insert_metadata(self, key, value):
-        pass
 
 
 def _run_single_file_tab(monkeypatch, report):
@@ -244,6 +236,8 @@ def _run_single_file_tab(monkeypatch, report):
     records, infos = _capture_progress(monkeypatch)
 
     class FakePredictions:
+        hop_duration_s = 3.0
+
         def to_dataframe(self):
             return pd.DataFrame(
                 columns=["species_name", "start_time", "end_time", "confidence"]
@@ -266,7 +260,7 @@ def _run_single_file_tab(monkeypatch, report):
         audio_speed=1.0,
         fmin=0,
         fmax=15000,
-        species_list_choice=gu._ALL_SPECIES,
+        species_list_choice=gu.ALL_SPECIES,
         species_list_file=None,
         lat=-1,
         lon=-1,
@@ -316,14 +310,16 @@ def test_single_file_tab_shows_analysis_progress_on_its_progress_bar(monkeypatch
     assert unit != "progress-unit-segments", "the unit label is an untranslated key"
 
 
-def test_embeddings_tab_shows_the_download_on_its_progress_bar(monkeypatch):
+def test_embeddings_tab_shows_the_download_on_its_progress_bar(monkeypatch, tmp_path):
     """Building a database is the first thing a fresh install does, model and all."""
     from birdnet_analyzer.gui import embeddings as gui_embeddings
 
     records, infos = _capture_progress(monkeypatch)
 
     monkeypatch.setattr(
-        gui_embeddings, "get_embeddings_database", lambda directory: _FakeDatabase()
+        gui_embeddings,
+        "read_database_settings",
+        lambda directory: _FakeDatabase().get_metadata(None),
     )
     monkeypatch.setattr(
         _module("birdnet_analyzer.embeddings.core"),
@@ -333,7 +329,7 @@ def test_embeddings_tab_shows_the_download_on_its_progress_bar(monkeypatch):
 
     gui_embeddings.run_embeddings_with_tqdm_tracking(
         input_path="recordings",
-        db_directory="database",
+        db_directory=str(tmp_path / "database"),
         overlap=0.0,
         batch_size=1,
         producers_number=1,
@@ -358,7 +354,11 @@ def test_search_tab_shows_the_download_on_its_progress_bar(monkeypatch):
         _emit_download()
         return []
 
-    monkeypatch.setattr(gui_search, "get_search_database", lambda path: _FakeDatabase())
+    @contextlib.contextmanager
+    def fake_open_database(path):
+        yield _FakeDatabase()
+
+    monkeypatch.setattr(gui_search, "open_database", fake_open_database)
     monkeypatch.setattr(
         _module("birdnet_analyzer.search.utils"),
         "get_search_results",
@@ -402,6 +402,7 @@ def test_train_tab_shows_the_download_on_its_progress_bar(monkeypatch):
         output_dir="classifiers",
         classifier_name="classifier",
         model_save_mode="replace",
+        birdnet_version="3.0",
         cache_mode="none",
         cache_file="",
         cache_file_name="",

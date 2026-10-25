@@ -21,7 +21,7 @@ birdnet_analyzer.analyze
 
    .. code:: bash
 
-      python3 -m birdnet_analyzer.analyze example/ --slist example/ --min_conf 0.5 --threads 4
+      python3 -m birdnet_analyzer.analyze example/ --slist example/ --min_conf 0.5 --n_workers 4
 
       python3 -m birdnet_analyzer.analyze example/ --lat 42.5 --lon -76.45 --week 4 --sensitivity 1.0
 
@@ -45,7 +45,7 @@ birdnet_analyzer.embeddings
 
    .. code:: bash
 
-      python -m birdnet_analyzer.embeddings example/ --threads 4 --batch_size 16
+      python -m birdnet_analyzer.embeddings -i example/ -db example_db/ --batch_size 16
 
 .. _cli-segments:
 
@@ -84,7 +84,9 @@ birdnet_analyzer.train
    All you need is a dataset of labeled audio files, organized in folders by species (we use folder names as labels).
    This also works for non-bird species, as long as you have a dataset of labeled audio files.
    
-   Audio files will be resampled to 48 kHz and converted into 3-second segments (we support different crop segmentation modes for files longer than 3 seconds; we pad with random noise if the file is shorter). We recommend using at least 100 audio files per species (although training also works with less data).
+   Audio files will be resampled to the sample rate of the base model (48 kHz for BirdNET 2.4, 32 kHz for BirdNET 3.0) and converted into 3-second segments (we support different crop segmentation modes for files longer than 3 seconds; we pad with zeros if the file is shorter). We recommend using at least 100 audio files per species (although training also works with less data).
+
+   The classifier is trained on the embeddings of one BirdNET version, chosen with ``--birdnet`` (3.0 by default), and only works with that version.
    
    You can download a sample training data set `here <https://drive.google.com/file/d/16hgka5aJ4U69ane9RQn_quVmgjVY2AY5/edit>`_.
 
@@ -93,7 +95,7 @@ birdnet_analyzer.train
    3. It can be helpful to include a non-event class. If you name a folder 'Noise', 'Background', 'Other' or 'Silence', it will be treated as a non-event class.
    4. Run the training script with ``python -m birdnet_analyzer.train <path to training data folder> -o <path to trained classifier model output>``.
 
-   **The script saves the trained classifier model based on the best validation loss achieved during training. This ensures that the model saved is optimized for performance according to the chosen metric.**
+   **Training stops early once the validation score (``--autotune_metric``, AUPRC by default) stops improving, and the saved classifier keeps the weights of its best epoch.**
 
    After training, you can use the custom trained classifier with the ``--classifier`` argument of the ``birdnet_analyzer.analyze`` script.
    If you want to use the custom classifier in Raven, make sure to set ``--model_formats raven``.
@@ -110,7 +112,7 @@ birdnet_analyzer.train
       python -m birdnet_analyzer.analyze example/ --classifier checkpoints/custom/Custom_Classifier.tflite
 
    .. note::
-      Setting a custom classifier will also set the new labels file. Due to these custom labels, the location filter and locale will be disabled.
+      Setting a custom classifier will also set the new labels file. The species names come from that file, so ``--locale`` has no effect. A location (``--lat``/``--lon``) keeps only the classifier's species that the geo model predicts there, or, with a warning, all of them if it predicts none.
    
    **Negative samples**
 

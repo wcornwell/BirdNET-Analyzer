@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import gradio as gr
 
 import birdnet_analyzer.gui.localization as loc
+import birdnet_analyzer.gui.utils as gu
 from birdnet_analyzer import params, settings, utils
 
 if TYPE_CHECKING:
@@ -60,22 +61,26 @@ class PresetControls:
                     choices=settings.list_presets(tab),
                     value=None,
                     label=loc.localize("presets-dropdown-label"),
-                    scale=4,
+                    scale=20,
                 )
                 self.load_button = gr.Button(
-                    loc.localize("presets-load-button-label"), variant="primary"
+                    loc.localize("presets-load-button-label"),
+                    variant="primary",
+                    scale=5,
                 )
                 self.delete_button = gr.Button(
-                    loc.localize("presets-delete-button-label")
+                    loc.localize("presets-delete-button-label"), scale=5
                 )
 
             with gr.Row(equal_height=True):
                 self.name_textbox = gr.Textbox(
                     label=loc.localize("presets-name-textbox-label"),
                     max_lines=1,
-                    scale=5.2,  # type: ignore
+                    scale=26,
                 )
-                self.save_button = gr.Button(loc.localize("presets-save-button-label"))
+                self.save_button = gr.Button(
+                    loc.localize("presets-save-button-label"), scale=5
+                )
 
             if params_loader is not None:
                 self.load_params_file_button = gr.Button(params_button_label)
@@ -115,15 +120,18 @@ class PresetControls:
             else []
         )
         outputs = components + file_outputs
+        fitter_inputs = state.fitter_inputs()
 
-        def apply_values(values: dict[str, Any]) -> list:
+        def apply_values(values: dict[str, Any], current) -> list:
             values = dict(values)
             species_file = values.pop(SPECIES_FILE_KEY, None) if with_files else None
             classifier_file = (
                 values.pop(CLASSIFIER_FILE_KEY, None) if with_files else None
             )
 
-            updates, skipped = state.updates_for(values)
+            updates, skipped = state.updates_for(
+                values, dict(zip(fitter_inputs, current, strict=True))
+            )
 
             if with_files:
                 updates += _file_updates(species_file, classifier_file, skipped)
@@ -137,6 +145,7 @@ class PresetControls:
 
             return updates
 
+        @gu.gui_runtime_error_handler
         def on_save(name, *values):
             name = (name or "").strip()
 
@@ -156,14 +165,14 @@ class PresetControls:
             try:
                 settings.save_preset(self.tab, name, preset)
             except OSError as e:
-                settings.write_error_log(e)
                 raise gr.Error(loc.localize("presets-save-failed-error")) from e
 
             gr.Info(loc.localize("presets-saved-info"))
 
             return gr.update(choices=settings.list_presets(self.tab), value=name)
 
-        def on_load(name):
+        @gu.gui_runtime_error_handler
+        def on_load(name, *current):
             if not name:
                 gr.Warning(loc.localize("presets-none-selected-warning"))
                 return [gr.skip()] * len(outputs)
@@ -173,11 +182,12 @@ class PresetControls:
             if preset is None:
                 raise gr.Error(loc.localize("presets-missing-preset-error"))
 
-            updates = apply_values(preset)
+            updates = apply_values(preset, current)
             gr.Info(loc.localize("presets-loaded-info"))
 
             return updates
 
+        @gu.gui_runtime_error_handler
         def on_delete(name):
             if not name:
                 gr.Warning(loc.localize("presets-none-selected-warning"))
@@ -196,7 +206,7 @@ class PresetControls:
         )
         self.load_button.click(
             on_load,
-            inputs=self.preset_dropdown,
+            inputs=[self.preset_dropdown, *fitter_inputs],
             outputs=outputs,
             show_progress="hidden",
         )
@@ -209,9 +219,8 @@ class PresetControls:
 
         if self.load_params_file_button is not None:
 
-            def on_load_params_file():
-                import birdnet_analyzer.gui.utils as gu
-
+            @gu.gui_runtime_error_handler
+            def on_load_params_file(*current):
                 file = gu.select_file(
                     ("CSV (*.csv)",), state_key=f"{self.tab}-params-file"
                 )
@@ -219,13 +228,16 @@ class PresetControls:
                 if not file:
                     return [gr.skip()] * len(outputs)
 
-                updates = apply_values(self._params_loader(file))
+                updates = apply_values(self._params_loader(file), current)
                 gr.Info(loc.localize("presets-loaded-info"))
 
                 return updates
 
             self.load_params_file_button.click(
-                on_load_params_file, outputs=outputs, show_progress="hidden"
+                on_load_params_file,
+                inputs=fitter_inputs,
+                outputs=outputs,
+                show_progress="hidden",
             )
 
 
@@ -268,16 +280,11 @@ def _file_updates(species_file, classifier_file, skipped: list[str]) -> list:
     return [species_update, *classifier_updates]
 
 
-def _species_choice(option: str) -> str:
-    # The keys gui.utils localizes the species and model radio labels with.
-    return loc.localize(f"species-list-radio-option-{option}")
-
-
 def _load_params_file(loader, path: str, error_key: str) -> dict[str, Any]:
     try:
         return loader(path)
-    except ValueError as e:
-        raise gr.Error(loc.localize(error_key)) from e
+    except ValueError:
+        raise gr.Error(loc.localize(error_key)) from None
 
 
 def _rename(kwargs: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
@@ -350,24 +357,23 @@ def load_analysis_params(path: str) -> dict[str, Any]:
     values["yearlong_checkbox"] = "week" not in kwargs
 
     if "slist" in kwargs:
-        values["species_list_radio"] = _species_choice("custom-list")
+        values["species_list_radio"] = gu.CUSTOM_SPECIES
         values[SPECIES_FILE_KEY] = kwargs["slist"]
     elif "lat" in kwargs and "lon" in kwargs:
-        values["species_list_radio"] = _species_choice("predict-list")
+        values["species_list_radio"] = gu.PREDICT_SPECIES
     else:
-        values["species_list_radio"] = _species_choice("all")
+        values["species_list_radio"] = gu.ALL_SPECIES
 
     if "classifier" in kwargs:
-        values["model_selection_radio"] = _species_choice("custom-classifier")
+        values["model_selection_radio"] = gu.CUSTOM_CLASSIFIER
         values[CLASSIFIER_FILE_KEY] = kwargs["classifier"]
     elif kwargs.get("model") == "perch":
-        values["model_selection_radio"] = _species_choice("use-perch")
+        values["model_selection_radio"] = gu.USE_PERCH
     elif "model" in kwargs:
-        # Not localized, must match gui.utils._USE_BIRDNET_2_4 / _USE_BIRDNET_3_0.
         # Files written before 3.0 have no version and were always 2.4.
         version = str(kwargs.get("birdnet", "2.4"))
         values["model_selection_radio"] = (
-            "BirdNET 3.0" if version == "3.0" else "BirdNET 2.4"
+            gu.USE_BIRDNET_3_0 if version == "3.0" else gu.USE_BIRDNET_2_4
         )
 
     return values
@@ -417,6 +423,7 @@ def load_train_params(path: str) -> dict[str, Any]:
             "focal_loss_alpha": "focal_loss_alpha_slider",
             "upsampling_mode": "upsampling_mode_radio",
             "upsampling_ratio": "upsampling_ratio_slider",
+            "birdnet": "birdnet_version_radio",
         },
     )
 

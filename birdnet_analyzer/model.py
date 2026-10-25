@@ -4,24 +4,19 @@
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import logging
 import os
-
-# Set TensorFlow environment variables before any other imports (macOS XLA deadlock fix)
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["WRAPT_DISABLE_EXTENSIONS"] = "true"
-os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
-
 from typing import TYPE_CHECKING, Literal
 
 import keras
 import numpy as np
 import tensorflow as tf
-from birdnet.acoustic.models.v2_4.pb import AcousticPBDownloaderV2_4
 
 from birdnet_analyzer import config as cfg
-from birdnet_analyzer.config import RANDOM_SEED
+from birdnet_analyzer.base_models import base_model
+from birdnet_analyzer.config import DEFAULT_ACOUSTIC_MODEL_VERSION, RANDOM_SEED
 from birdnet_analyzer.train import custom_models
 
 if TYPE_CHECKING:
@@ -30,18 +25,18 @@ if TYPE_CHECKING:
 tf.get_logger().setLevel("ERROR")
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
-SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 EMPTY_CLASS_EXCEPTION_REF = None
 
 
 class WrappedSavedModel(keras.layers.Layer):
-    def __init__(self, fn):
+    def __init__(self, pb_model, version: str, output: str):
         super().__init__()
-        self.fn = fn
+        self.fn, self.input_key, self.output_key = custom_models.base_signature(
+            pb_model, version, output
+        )
 
     def call(self, inputs):
-        outputs = self.fn(inputs)
-        return list(outputs.values())[0]
+        return self.fn(**{self.input_key: inputs})[self.output_key]
 
 
 def get_empty_class_exception():
@@ -73,8 +68,8 @@ def label_smoothing(y: np.ndarray, alpha=0.1):
     """
     Applies label smoothing to the given labels.
     Label smoothing is a technique used to prevent the model from becoming overconfident
-    by adjusting the target labels. It subtracts a small value (alpha) from the correct
-    label and distributes it among the other labels.
+    by adjusting the target labels. It scales each label by (1 - alpha) and spreads
+    alpha evenly over all classes. Negative labels (-1) are left unchanged.
     Args:
         y (numpy.ndarray): Array of labels to be smoothed. The array should be of shape
             (num_labels,).
@@ -82,8 +77,8 @@ def label_smoothing(y: np.ndarray, alpha=0.1):
     Returns:
         numpy.ndarray: The smoothed labels.
     """
-    y[y > 0] -= alpha
-    y[y == 0] = alpha / y.shape[0]
+    smoothable = y >= 0
+    y[smoothable] = y[smoothable] * (1 - alpha) + alpha / y.shape[-1]
 
     return y
 
@@ -564,6 +559,34 @@ def compute_validation_metrics(y_true, y_pred, labels=None):
     return per_class, summaries
 
 
+class HardLabelAUC(keras.metrics.AUC):
+    """AUC on the hard labels: keras counts every non-zero label as a positive, which
+    makes all smoothed labels positives and a negative label (-1) one too."""
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = keras.ops.cast(keras.ops.greater_equal(y_true, 0.5), self.dtype)
+
+        return super().update_state(y_true, y_pred, sample_weight)
+
+
+def _hiding_cuda_devices(train):
+    @functools.wraps(train)
+    def wrapper(*args, **kwargs):
+        previous = os.environ.get("CUDA_VISIBLE_DEVICES")
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+        try:
+            return train(*args, **kwargs)
+        finally:
+            if previous is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = previous
+
+    return wrapper
+
+
+@_hiding_cuda_devices
 def train_linear_classifier(
     classifier: keras.Model,
     x_train: np.ndarray,
@@ -587,6 +610,8 @@ def train_linear_classifier(
     additional_callbacks=None,
     weight_decay=0.004,
     labels=None,
+    monitor="val_loss",
+    monitor_mode: Literal["min", "max"] = "min",
 ):
     """Trains a custom classifier.
 
@@ -614,12 +639,14 @@ def train_linear_classifier(
         is_multi_label: If True, multi-label classification is used.
         is_binary_classification: If True, binary classification is used.
         on_epoch_end: Optional callback `function(epoch, logs)`.
+        monitor: The validation metric early stopping watches; the classifier keeps
+            the weights of its best epoch.
+        monitor_mode: "max" if a higher value of `monitor` is better, else "min".
 
     Returns:
-        (classifier, history)
+        (classifier, history), where `history.restored_epoch` is the epoch whose
+        weights the classifier keeps.
     """
-    setting_cache = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     class FunctionCallback(keras.callbacks.Callback):
         def __init__(self, on_epoch_end=None) -> None:
@@ -666,17 +693,18 @@ def train_linear_classifier(
         y_train = label_smoothing(y_train)
 
     patience = min(10, max(5, int(epochs / 10)))
+    early_stopping = keras.callbacks.EarlyStopping(
+        monitor=monitor,
+        mode=monitor_mode,
+        patience=patience,
+        verbose=1,
+        min_delta=0.001,
+        restore_best_weights=True,
+    )
     callbacks = [
         *(additional_callbacks or []),
         FunctionCallback(on_epoch_end=on_epoch_end),
-        keras.callbacks.EarlyStopping(
-            monitor="val_loss",
-            mode="min",
-            patience=patience,
-            verbose=1,
-            min_delta=0.001,
-            restore_best_weights=True,
-        ),
+        early_stopping,
     ]
 
     warmup_epochs = min(5, int(epochs * 0.1))
@@ -704,19 +732,19 @@ def train_linear_classifier(
         ),
         loss=loss_function,
         metrics=[
-            keras.metrics.AUC(
+            HardLabelAUC(
                 curve="PR",
                 multi_label=is_multi_label,
                 name="AUPRC",
                 num_labels=y_train.shape[1] if is_multi_label else None,
-                from_logits=True,
+                from_logits=False,
             ),
-            keras.metrics.AUC(
+            HardLabelAUC(
                 curve="ROC",
                 multi_label=is_multi_label,
                 name="AUROC",
                 num_labels=y_train.shape[1] if is_multi_label else None,
-                from_logits=True,
+                from_logits=False,
             ),
         ],
     )
@@ -788,10 +816,10 @@ def train_linear_classifier(
         if model_path_cfg and model_path_cfg not in output_bases:
             output_bases.append(model_path_cfg)
 
-        # 3) Fallback: use classifier.name in SCRIPT_DIR
+        # 3) Fallback: use classifier.name in the package directory
         if not output_bases:
             model_name = getattr(classifier, "name", "classifier")
-            output_bases.append(os.path.join(SCRIPT_DIR, model_name))
+            output_bases.append(os.path.join(cfg.SCRIPT_DIR, model_name))
 
         for base in output_bases:
             root, _ext = os.path.splitext(base)
@@ -820,7 +848,7 @@ def train_linear_classifier(
     except Exception as e:
         print(f"[WARN] Could not write metrics CSV ({e}).", flush=True)
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = setting_cache
+    history.restored_epoch = early_stopping.best_epoch
 
     return classifier, history
 
@@ -830,33 +858,53 @@ def save_linear_classifier(
     model_path: str,
     labels: list[str],
     mode: Literal["replace", "append"] = "replace",
+    version: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
 ):
     """Saves the classifier as a tflite model, as well as the used labels in a .txt.
+
+    On the 3.0 base the export mirrors the official 3.0 tflite model: input ``x`` and
+    the named outputs ``predictions`` (probabilities) and ``embeddings``. On 2.4 the
+    single output holds logits, as the 2.4 model does.
 
     Args:
         classifier: The custom classifier.
         model_path: Path the model will be saved at.
         labels: List of labels used for the classifier.
+        mode: Whether the classifier replaces the base model's classes or is appended
+            to them.
+        version: The BirdNET version the classifier was trained on.
     """
     if mode not in ("replace", "append"):
         raise ValueError("Model save mode must be either 'replace' or 'append'")
 
-    saved_model_path, original_labels = (
-        AcousticPBDownloaderV2_4.get_model_path_and_labels("en_us")
-    )
-    saved_model = tf.saved_model.load(saved_model_path)
-    inputs = keras.Input(shape=(144000,), dtype=tf.float32, name="input_audio")
-    wrapper = WrappedSavedModel(saved_model.signatures["embeddings"])(inputs)
+    base = base_model(version)
+    saved_model, original_labels = base.load()
 
-    if mode == "replace":
-        output = classifier(wrapper)
-    elif mode == "append":
-        basic = WrappedSavedModel(saved_model.signatures["basic"])(inputs)
-        output = keras.layers.concatenate(
-            [basic, classifier(wrapper)], name="combined_output"
+    if base.outputs_probabilities:
+        inputs = keras.Input(shape=(base.segment_samples,), dtype=tf.float32, name="x")
+        embeddings = WrappedSavedModel(saved_model, version, "embeddings")(inputs)
+        output = keras.layers.Activation("sigmoid")(classifier(embeddings))
+
+        if mode == "append":
+            basic = WrappedSavedModel(saved_model, version, "predictions")(inputs)
+            output = keras.layers.concatenate([basic, output])
+
+        outputs = {
+            "predictions": keras.layers.Identity(name="predictions")(output),
+            "embeddings": keras.layers.Identity(name="embeddings")(embeddings),
+        }
+    else:
+        inputs = keras.Input(
+            shape=(base.segment_samples,), dtype=tf.float32, name="input_audio"
         )
+        embeddings = WrappedSavedModel(saved_model, version, "embeddings")(inputs)
+        outputs = classifier(embeddings)
 
-    combined_model = keras.Model(inputs=inputs, outputs=output, name="basic")
+        if mode == "append":
+            basic = WrappedSavedModel(saved_model, version, "predictions")(inputs)
+            outputs = keras.layers.concatenate([basic, outputs], name="combined_output")
+
+    combined_model = keras.Model(inputs=inputs, outputs=outputs, name="basic")
 
     if not model_path.endswith(".tflite"):
         model_path += ".tflite"
@@ -872,7 +920,11 @@ def save_linear_classifier(
     if mode == "append":
         labels = [*original_labels, *labels]
 
-    with open(model_path.replace(".tflite", "_Labels.txt"), "w", encoding="utf-8") as f:
+    _write_labels(model_path.replace(".tflite", "_Labels.txt"), labels)
+
+
+def _write_labels(path: str, labels: list[str]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
         f.writelines(label + "\n" for label in labels)
 
 
@@ -883,7 +935,7 @@ def save_raven_model(
     mode: Literal["replace", "append"] = "replace",
     sig_fmin=0,
     sig_fmax=15000,
-    model_version="2.4",
+    version: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
 ):
     """
     Save a TensorFlow model with a custom classifier and associated metadata for use
@@ -895,27 +947,32 @@ def save_raven_model(
         labels (list[str]): A list of labels associated with the classifier.
         mode (str, optional): The mode for saving the model. Can be either "replace" or
             "append". Defaults to "replace".
-
-    Raises:
-        ValueError: If the mode is not "replace" or "append".
+        sig_fmin (int, optional): Lowest frequency in Hz written for every class to
+            "classes/classes.csv". Defaults to 0.
+        sig_fmax (int, optional): Highest frequency in Hz written for every class to
+            "classes/classes.csv". Defaults to 15000.
+        version: The BirdNET version the classifier was trained on. Defaults to the
+            newest version.
 
     Returns:
         None
     """
 
-    saved_model_path, original_labels = (
-        AcousticPBDownloaderV2_4.get_model_path_and_labels("en_us")
-    )
-    saved_model = tf.saved_model.load(saved_model_path)
+    base = base_model(version)
+    saved_model, original_labels = base.load()
     model_cls = (
         custom_models.CombinedModelAppendWithSigmoid
         if mode == "append"
         else custom_models.CombinedModelReplaceWithSigmoid
     )
-    combined_model = model_cls(saved_model, classifier)
+    combined_model = model_cls(
+        saved_model, classifier, version, base.outputs_probabilities
+    )
 
     @tf.function(
-        input_signature=[tf.TensorSpec(shape=[None, 144000], dtype=tf.float32)]
+        input_signature=[
+            tf.TensorSpec(shape=[None, base.segment_samples], dtype=tf.float32)
+        ]
     )  # pyright: ignore[reportCallIssue]
     def basic(inputs):
         return {"scores": combined_model(inputs)}
@@ -939,6 +996,9 @@ def save_raven_model(
 
     if mode == "append":
         labels = [*original_labels, *labels]
+
+    # The species list birdnet reads; Raven itself uses label_names.csv below.
+    _write_labels(model_path + "_Labels.txt", labels)
 
     labelIds = [
         label[:4].replace(" ", "") + str(i) for i, label in enumerate(labels, 1)
@@ -969,7 +1029,7 @@ def save_raven_model(
         modelconfig = {
             "specVersion": 1,
             "modelDescription": "Custom classifier trained with BirdNET "
-            + model_version
+            + version
             + " embeddings.\n"
             + "BirdNET was developed by the K. Lisa Yang Center for Conservation "
             + "Bioacoustics at the Cornell Lab of Ornithology in collaboration with "
@@ -981,7 +1041,7 @@ def save_raven_model(
                     "modelInputs": [
                         {
                             "inputName": "inputs",
-                            "sampleRate": 48000.0,
+                            "sampleRate": float(base.sample_rate),
                             "inputConfig": ["batch", "samples"],
                         }
                     ],
@@ -998,14 +1058,21 @@ def save_detached_classifier(
     classifier,
     model_path: str,
     labels: list[str] | None = None,
+    version: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
 ):
     """Saves the detached classifier head as pb and tflite models.
+
+    The head takes the base model's embeddings and scores them the way that base
+    does: probabilities on 3.0, logits on 2.4.
 
     Args:
         classifier: The custom classifier.
         model_path: Path the model will be saved at.
         labels: List of labels to save for the detached classifier.
+        version: The BirdNET version the classifier was trained on.
     """
+    base = base_model(version)
+
     if model_path.endswith(".tflite"):
         model_path = model_path.removesuffix(".tflite")
 
@@ -1014,9 +1081,14 @@ def save_detached_classifier(
     detached_classifier_path = model_path + "_detached"
 
     detached_model_inputs = keras.Input(
-        shape=(1024,), dtype=tf.float32, name="detached_input"
+        shape=(base.embeddings_dim,), dtype=tf.float32, name="detached_input"
     )
     detached_model_outputs = classifier(detached_model_inputs)
+
+    if base.outputs_probabilities:
+        detached_model_outputs = keras.layers.Activation("sigmoid")(
+            detached_model_outputs
+        )
     detached_model = keras.Model(
         inputs=detached_model_inputs,
         outputs=detached_model_outputs,
@@ -1055,8 +1127,8 @@ def focal_loss(y_true, y_pred, gamma=2.0, alpha=0.25, epsilon=1e-7):
         Focal loss value.
     """
     y_false = 1 - y_true
-    y_false_pred = 1 - y_pred
     y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
+    y_false_pred = 1 - y_pred
     cross_entropy = -y_true * tf.math.log(y_pred) - y_false * tf.math.log(y_false_pred)
     p_t = y_true * y_pred + y_false * y_false_pred
     focal_weight = tf.pow(1 - p_t, gamma)

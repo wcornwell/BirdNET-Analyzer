@@ -6,25 +6,29 @@ Can be used to train a custom classifier with new training data.
 from __future__ import annotations
 
 import csv
+import errno
 import logging
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, get_args
 
 import numpy as np
 import tqdm
-from birdnet import load
 from sklearn.model_selection import RepeatedStratifiedKFold
 
-from birdnet_analyzer import audio, model, model_utils, utils
+from birdnet_analyzer import audio, base_models, model, model_utils, utils
 from birdnet_analyzer import config as cfg
 from birdnet_analyzer.config import (
     ALLOWED_FILETYPES,
     AUTOTUNE_METRICS,
+    DEFAULT_ACOUSTIC_MODEL_VERSION,
     NON_EVENT_CLASSES,
+    RANDOM_SEED,
     TRAIN_PARAMS_SUFFIX,
 )
 from birdnet_analyzer.model_utils import GLOBAL_PREFETCH_RATIO
+from birdnet_analyzer.params import TRAIN_PARAMS, by_header
 
 
 def scientific_prefix(label: str) -> str:
@@ -78,7 +82,7 @@ def is_selected_species(label: str) -> bool:
 
 
 def _scope_cache_to_species_list(
-    x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label
+    x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label, version
 ):
     """Narrow an already-extracted cache to a site's species list.
 
@@ -93,7 +97,16 @@ def _scope_cache_to_species_list(
     positive *before* the slice rather than from the sliced result.
     """
     if not cfg.TRAIN_SPECIES_LIST:
-        return x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label
+        return (
+            x_train,
+            y_train,
+            x_test,
+            y_test,
+            labels,
+            is_binary,
+            is_multi_label,
+            version,
+        )
 
     labels = [str(label) for label in labels]
     _warn_unmatched_species({scientific_prefix(label) for label in labels})
@@ -140,6 +153,7 @@ def _scope_cache_to_species_list(
         scoped_labels,
         len(scoped_labels) == 1,
         is_multi_label and len(scoped_labels) > 1,
+        version,
     )
 
 
@@ -185,9 +199,11 @@ def is_non_event(label: str) -> bool:
     )
 
 
-# On CPU the tflite model resizes its input tensor when the batch shape changes, so
-# small batches encode fastest (~24 ms/segment at 1-4, ~42 ms at 32 on BirdNET 2.4).
-ENCODE_BATCH_SIZE = 4
+# Encode batch size per base model, measured on CPU inside a warm session: the 2.4
+# tflite interpreter re-plans on every batch-shape change, so small batches win
+# (16 ms/segment at 1-4, 34 ms at 32); the 3.0 ONNX model gains from large ones
+# (210 ms/segment at 1, 111 ms at 32).
+ENCODE_BATCH_SIZES = {"2.4": 4, "3.0": 32}
 # Decoded segments buffered before a batched encode flush. Bounds peak buffered-audio
 # memory (~0.5 MiB per 3 s float32 segment at 48 kHz) while amortising call overhead.
 ENCODE_CHUNK_SIZE = 1024
@@ -339,6 +355,28 @@ def _check_input_folders(audio_input: str, train_folders: list[str]):
         )
 
 
+def _check_cache_destination(path: str):
+    """Fail before the data is embedded if the cache file cannot be written."""
+    if not path.endswith(".npz"):
+        path += ".npz"  # as np.savez does
+
+    if os.path.isdir(path):
+        raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), path)
+
+    directory = os.path.dirname(os.path.abspath(path))
+
+    while not os.path.isdir(directory) and os.path.dirname(directory) != directory:
+        if os.path.exists(directory):
+            raise NotADirectoryError(
+                errno.ENOTDIR, os.strerror(errno.ENOTDIR), directory
+            )
+
+        directory = os.path.dirname(directory)
+
+    with tempfile.TemporaryFile(dir=directory):
+        pass
+
+
 def _load_training_data(
     audio_input: str,
     test_data: str | None = None,
@@ -353,6 +391,7 @@ def _load_training_data(
     threads=1,
     save_cache_to: str | None = None,
     progress_callback=None,
+    model_version: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
 ):
     """Loads the data for training.
 
@@ -365,8 +404,7 @@ def _load_training_data(
     Args:
         audio_input: Path to the training data directory or path to a cache file
                      ("train_cache.npz" for example).
-        test_data: Path to the test data directory. Defaults to None. If not specified,
-                   a validation split will be used.
+        test_data: Path to the test data directory. Defaults to None.
         upsampling_ratio: Ratio for upsampling underrepresented classes.
                           Defaults to 0.0.
         progress_callback: A callback function for monitoring progress during data
@@ -377,9 +415,13 @@ def _load_training_data(
         crop_mode: Mode for cropping audio samples. Defaults to "center".
         overlap: Overlap between audio chunks. Defaults to 0.0.
         min_len: Minimum length of audio chunks. Defaults to 1.0.
+        model_version: The BirdNET version whose embeddings become the samples. A
+                       cache file was embedded with a fixed version, which is
+                       returned instead.
 
     Returns:
-        A tuple of (x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label)
+        A tuple of (x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label,
+        model_version)
     """
 
     if audio_input.endswith(".npz"):
@@ -412,13 +454,9 @@ def _load_training_data(
     labels: list[str] = []
 
     for folder in train_folders:
-        labels_in_folder = folder.split(",")
-
-        for label in labels_in_folder:
-            cln_label = label.strip()
-
-            if cln_label not in labels:
-                labels.append(cln_label)
+        for label in utils.parse_folder_labels(folder):
+            if label not in labels:
+                labels.append(label)
 
     labels = sorted(labels)
     valid_labels = [
@@ -433,32 +471,32 @@ def _load_training_data(
 
     if is_binary:
         if any(f for f in train_folders if f.startswith("-")):
-            raise Exception(
+            raise ValueError(
                 "Negative labels can't be used with binary classification",
                 "validation-no-negative-samples-in-binary-classification",
             )
         if not any(f for f in train_folders if f.lower() in NON_EVENT_CLASSES):
-            raise Exception(
+            raise ValueError(
                 "Non-event samples are required for binary classification",
                 "validation-non-event-samples-required-in-binary-classification",
             )
 
-    if is_binary and is_multi_label:
-        raise Exception(
-            "Error: Binary classification and multi-label not possible at the same time"
-        )
-
     if is_multi_label and upsampling_ratio > 0 and upsampling_mode != "repeat":
-        raise Exception(
+        raise ValueError(
             "Only repeat-upsampling is available for multi-label",
             "validation-only-repeat-upsampling-for-multi-label",
         )
 
     _check_input_folders(audio_input, train_folders)
 
+    if save_cache_to:
+        _check_cache_destination(save_cache_to)
+
     x_train, y_train, x_test, y_test = [], [], [], []
-    model = load("acoustic", "2.4", "tf")
-    model_sr = int(model.get_sample_rate())
+    # Fail here rather than at export time, after the data has been embedded.
+    model.base_model(model_version)
+    acoustic_model = model_utils._load_acoustic_for_embeddings(model_version)
+    model_sr = int(acoustic_model.get_sample_rate())
 
     # librosa/scipy release the GIL for the heavy numeric work, so threaded decode
     # workers parallelise well without multiprocessing's pickling/spawn overhead.
@@ -467,8 +505,8 @@ def _load_training_data(
     # Bandpass and speed are already applied in open_audio_file (see
     # _read_and_crop_file), so the encoding session uses no-op defaults (fmin=0,
     # fmax=15000, speed=1.0) to avoid applying them twice.
-    with model.encode_session(
-        batch_size=ENCODE_BATCH_SIZE,
+    with acoustic_model.encode_session(
+        batch_size=ENCODE_BATCH_SIZES[model_version],
         n_workers=None,
         n_producers=1,
         progress_callback=None,
@@ -502,9 +540,8 @@ def _load_training_data(
                     continue
 
                 label_vector = np.zeros((len(valid_labels),), dtype="float32")
-                folder_labels = folder.split(",")
 
-                for label in folder_labels:
+                for label in utils.parse_folder_labels(folder):
                     # `label in valid_labels` also covers the species-list case: a kept
                     # "A,B" folder where only A is listed leaves B without a column, and
                     # an unguarded valid_labels.index(B) would raise.
@@ -616,11 +653,147 @@ def _load_training_data(
                 crop_mode=crop_mode,
                 is_binary=is_binary,
                 is_multi_label=is_multi_label,
+                model_version=model_version,
             )
         except Exception as e:
-            logger.warning(f"\t...error saving cache: {e}")
+            logger.error(f"\t...error saving cache: {e}")
+            raise
 
-    return x_train, y_train, x_test, y_test, valid_labels, is_binary, is_multi_label
+    return (
+        x_train,
+        y_train,
+        x_test,
+        y_test,
+        valid_labels,
+        is_binary,
+        is_multi_label,
+        model_version,
+    )
+
+
+class _FloatRange(NamedTuple):
+    low: float
+    high: float
+    step: float | None = None
+    log: bool = False
+
+
+def _search_space(is_multi_label: bool) -> dict[str, list | _FloatRange]:
+    return {
+        "hidden_units": [0, 128, 256, 512, 1024, 2048],
+        "dropout": [0.0, 0.25, 0.33, 0.5, 0.75, 0.9],
+        "batch_size": [8, 16, 32, 64, 128],
+        "learning_rate": _FloatRange(1e-4, 1e-1, log=True),
+        "upsampling_ratio": _FloatRange(0.0, 1.0, step=0.25),
+        "upsampling_mode": ["repeat"]
+        if is_multi_label
+        else ["repeat", "mean", "linear"],
+        "weight_decay": _FloatRange(1e-6, 1e-2, log=True),
+        "mixup": [True, False],
+        "label_smoothing": [True, False],
+        "focal_loss": [True, False],
+        "focal_loss_gamma": _FloatRange(0.5, 4.0, step=0.5),
+        "focal_loss_alpha": _FloatRange(0.1, 0.9, step=0.05),
+    }
+
+
+def _suggest(trial, space: dict[str, list | _FloatRange]) -> dict:
+    return {
+        name: trial.suggest_categorical(name, choices)
+        if isinstance(choices, list)
+        else trial.suggest_float(
+            name, choices.low, choices.high, step=choices.step, log=choices.log
+        )
+        for name, choices in space.items()
+    }
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _snap_to_search_space(defaults: dict, space: dict[str, list | _FloatRange]) -> dict:
+    """Moves the defaults onto the search space, as optuna requires of a seed trial.
+
+    Numbers go to the nearest value the search allows; any other value that is not a
+    choice is left out, so the sampler picks it.
+    """
+    snapped = {}
+
+    for name, value in defaults.items():
+        choices = space[name]
+
+        if isinstance(choices, _FloatRange):
+            new = min(max(value, choices.low), choices.high)
+
+            if choices.step:
+                steps = round((new - choices.low) / choices.step)
+                new = round(choices.low + steps * choices.step, 10)
+        elif value in choices:
+            new = value
+        elif _is_number(value) and all(map(_is_number, choices)):
+            new = min(choices, key=lambda choice: abs(choice - value))
+        else:
+            logger.info(
+                "Autotune: %s=%r is not in the search space, the search picks it.",
+                name,
+                value,
+            )
+            continue
+
+        if new != value:
+            logger.info(
+                "Autotune: starting with %s=%r, the nearest searched value to %r.",
+                name,
+                new,
+                value,
+            )
+
+        snapped[name] = new
+
+    return snapped
+
+
+def _stratification_labels(
+    y: np.ndarray, is_binary: bool, is_multi_label: bool
+) -> np.ndarray:
+    if is_binary:
+        return (y[:, 0] > 0).astype(int)
+
+    if is_multi_label:
+        return np.sum(y > 0, axis=1)
+
+    num_classes = y.shape[1]
+    no_positive = np.where(np.any(y < 0, axis=1), num_classes + 1, num_classes)
+
+    return np.where(np.any(y > 0, axis=1), np.argmax(y, axis=1), no_positive)
+
+
+def _kfold_splits(
+    y: np.ndarray, n_splits: int, n_repeats: int, is_binary: bool, is_multi_label: bool
+) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+    """Yields the training and validation row indices of each fold."""
+    negative = np.any(y < 0, axis=1)
+    candidates = np.flatnonzero(~negative)
+    folds = RepeatedStratifiedKFold(
+        n_splits=n_splits, n_repeats=n_repeats, random_state=RANDOM_SEED
+    )
+    strata = _stratification_labels(y[candidates], is_binary, is_multi_label)
+
+    for train_idx, val_idx in folds.split(candidates, strata):
+        yield (
+            np.concatenate([candidates[train_idx], np.flatnonzero(negative)]),
+            candidates[val_idx],
+        )
+
+
+def _without_negative_rows(x: np.ndarray, y: np.ndarray):
+    if len(y) == 0:
+        return x, y
+
+    keep = ~np.any(y < 0, axis=1)
+
+    return x[keep], y[keep]
 
 
 def train_model(
@@ -656,6 +829,7 @@ def train_model(
     autotune_n_splits: int = 1,
     autotune_n_repeats: int = 1,
     autotune_metric: AUTOTUNE_METRICS = "val_AUPRC",
+    birdnet: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
     on_epoch_end=None,
     on_trial_result=None,
     on_data_load_end=None,
@@ -663,15 +837,61 @@ def train_model(
     """Trains a custom classifier.
 
     Args:
-        on_epoch_end: A callback function that takes two arguments `epoch`, `logs`.
-        on_trial_result: A callback function for hyperparameter tuning.
-        on_data_load_end: A callback function for data loading progress.
-        autotune_directory: Directory for autotune results.
-        save_detached_classifier: Whether to additionally save a detached version of
-            the trained classifier.
+        audio_input: Training data folder, whose subfolder names are the labels, or a
+            cache file.
+        output: Path of the trained classifier. Defaults to
+            "checkpoints/custom/Custom_Classifier".
+        test_data: Test data folder, only used to evaluate the trained classifier.
+            Defaults to None.
+        crop_mode: "center", "first", "segments" or "smart". Defaults to "center".
+        overlap: Overlap of the segments in seconds for the "segments" and "smart"
+            crop modes. Defaults to 0.0.
+        epochs: Maximum number of epochs. Defaults to 50.
+        batch_size: Training batch size. Defaults to 32.
+        val_split: Fraction of the training data used for validation, above 0.
+            Defaults to 0.2.
+        learning_rate: Learning rate. Defaults to 0.0001.
+        weight_decay: AdamW weight decay. Defaults to 0.004.
+        use_focal_loss: Whether to use focal loss. Defaults to False.
+        focal_loss_gamma: Focal loss gamma. Defaults to 2.0.
+        focal_loss_alpha: Focal loss alpha. Defaults to 0.25.
+        hidden_units: Hidden units; above 0 the classifier has two layers.
+            Defaults to 0.
+        dropout: Dropout rate. Defaults to 0.0.
+        label_smoothing: Whether to use label smoothing. Defaults to False.
+        mixup: Whether to use mixup. Defaults to False.
+        upsampling_ratio: Ratio for upsampling minority classes. Defaults to 0.0.
+        upsampling_mode: "repeat", "linear", "mean" or "smote". Defaults to "repeat".
+        model_formats: One or more of "tflite", "raven" and "detached" (the
+            classifier alone, taking embeddings). Defaults to "tflite".
+        model_save_mode: "replace" the base model's classes or "append" to them.
+            Defaults to "replace".
+        save_cache_to: Path of a cache file to save the training data to.
+            Defaults to None.
+        threads: Number of threads decoding the training audio. Defaults to 1.
+        fmin: Lower bandpass frequency in Hz. Defaults to 0.0.
+        fmax: Upper bandpass frequency in Hz. Defaults to 15000.0.
+        audio_speed: Speed factor applied to the audio. Defaults to 1.0.
+        autotune: Whether to tune the hyperparameters first. Defaults to False.
+        autotune_trials: Number of tuning trials. Defaults to 50.
+        autotune_n_splits: Cross-validation folds per trial; 1 uses the validation
+            split. Defaults to 1.
+        autotune_n_repeats: Repetitions of the folds per trial. Defaults to 1.
+        autotune_metric: "val_AUPRC" or "val_AUROC", optimized by the tuning and the
+            early stopping. Defaults to "val_AUPRC".
+        birdnet: The BirdNET version to train on. Its embeddings are the classifier's
+            input, so the classifier only works with that version. A cache file keeps
+            the version it was embedded with. Defaults to the newest version.
+        on_epoch_end: Called with ``(epoch, logs)`` after each epoch of the final
+            training. Defaults to None.
+        on_trial_result: Called with the number of finished tuning trials, 0 before
+            the first. Defaults to None.
+        on_data_load_end: Called with ``(files_done, files_total, folder)`` for each
+            loaded file of a training or test data folder. Defaults to None.
 
     Returns:
-        A keras `History` object, whose `history` property contains all the metrics.
+        A tuple ``(history, metrics)``: the keras ``History`` of the final training,
+        and a dict of metrics on ``test_data``, or None without test data.
     """
     # train_linear_classifier derives the validation-metrics CSV path from
     # cfg.CUSTOM_CLASSIFIER; the refactor loader passes `output` as a param rather than
@@ -680,14 +900,30 @@ def train_model(
     # metrics path; inference (the other CUSTOM_CLASSIFIER reader) is not active here.
     cfg.CUSTOM_CLASSIFIER = output
 
+    if autotune_metric not in get_args(AUTOTUNE_METRICS):
+        raise ValueError(
+            f"Unsupported autotune metric {autotune_metric!r}, use one of "
+            f"{', '.join(get_args(AUTOTUNE_METRICS))}."
+        )
+
+    if autotune and autotune_trials < 1:
+        raise ValueError("Autotune needs at least one trial.")
+
+    if val_split <= 0:
+        raise ValueError(
+            "The validation split must be above 0: early stopping validates on it, "
+            "while test data only evaluates the trained classifier."
+        )
+
     (
         x_train_full,
         y_train_full,
-        x_val_full,
-        y_val_full,
+        x_test,
+        y_test,
         labels,
         is_binary,
         is_multi_label,
+        version,
     ) = _load_training_data(
         audio_input,
         test_data=test_data,
@@ -702,201 +938,136 @@ def train_model(
         threads=threads,
         save_cache_to=save_cache_to,
         progress_callback=on_data_load_end,
+        model_version=birdnet,
     )
+
+    if version != birdnet:
+        logger.warning(
+            "The training data cache holds BirdNET %s embeddings; training on that "
+            "version instead of %s.",
+            version,
+            birdnet,
+        )
+
     logger.info(
         f"...Done. Loaded {x_train_full.shape[0]} training samples "
         f"and {y_train_full.shape[1]} labels."
     )
-    if len(x_val_full) > 0:
-        logger.info(f"...Loaded {x_val_full.shape[0]} test samples.")
+    if len(x_test) > 0:
+        logger.info(f"...Loaded {x_test.shape[0]} test samples.")
 
     if autotune:
         import gc
 
         import keras
         import optuna
+        from optuna_integration.keras import KerasPruningCallback
 
         if on_trial_result:
             on_trial_result(0)
 
         study = optuna.create_study(
-            direction=optuna.study.StudyDirection.MAXIMIZE,
+            direction="maximize",
             study_name="birdnet_analyzer",
             sampler=optuna.samplers.TPESampler(multivariate=True, seed=42),
             pruner=optuna.pruners.MedianPruner(n_warmup_steps=3, interval_steps=1),
         )
+        space = _search_space(is_multi_label)
+        folds = (
+            list(
+                _kfold_splits(
+                    y_train_full,
+                    autotune_n_splits,
+                    autotune_n_repeats,
+                    is_binary,
+                    is_multi_label,
+                )
+            )
+            if autotune_n_splits > 1
+            else [(slice(None), None)]
+        )
 
         def objective(trial: optuna.trial.Trial):
-            histories: list[float] = []
-            h_units = trial.suggest_categorical(
-                "hidden_units", [0, 128, 256, 512, 1024, 2048]
+            params = _suggest(trial, space)
+            scores: list[float] = []
+            up_mode = (
+                params["upsampling_mode"]
+                if params["upsampling_ratio"] > 0
+                else upsampling_mode
             )
-            dr = trial.suggest_categorical("dropout", [0.0, 0.25, 0.33, 0.5, 0.75, 0.9])
-            upsampling_choices = (
-                ["repeat"] if is_multi_label else ["repeat", "mean", "linear"]
+            fg, fa = (
+                (params["focal_loss_gamma"], params["focal_loss_alpha"])
+                if params["focal_loss"]
+                else (focal_loss_gamma, focal_loss_alpha)
             )
 
-            # For multi-label, stratify on the count of active labels per sample.
-            # TODO: Is this the best way to do stratification for multi-label data?
-            if is_multi_label:
-                stratify_labels = np.sum(y_train_full > 0, axis=1)
-            else:
-                stratify_labels = np.argmax(y_train_full, axis=1)
-
-            def generate_splits(
-                x_train: np.ndarray,
-                y_train: np.ndarray,
-                x_test: np.ndarray,
-                y_test: np.ndarray,
-                val_split: float,
-                autotune_n_splits: int,
-                autotune_n_repeats: int,
-            ) -> Generator[
-                tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float], None, None
-            ]:
-                if x_test.size > 0:
-                    splits = [
-                        (
-                            np.arange(len(x_train)),
-                            np.arange(len(x_test)),
-                        )
-                    ]
-                    for train_idx, val_idx in splits:
-                        yield (
-                            x_train[train_idx],
-                            y_train[train_idx],
-                            x_test[val_idx],
-                            y_test[val_idx],
-                            0.0,
-                        )
-                elif autotune_n_splits == 1:
-                    splits = [(np.arange(len(x_train)),)]
-                    for train_idx in splits:
-                        yield (
-                            x_train[train_idx],
-                            y_train[train_idx],
-                            np.array([]),
-                            np.array([]),
-                            val_split,
-                        )
-                else:
-                    skf = RepeatedStratifiedKFold(
-                        n_splits=autotune_n_splits,
-                        n_repeats=autotune_n_repeats,
-                        random_state=42,  # TODO: use same state
-                    )
-
-                    for train_idx, val_idx in skf.split(x_train, stratify_labels):
-                        yield (
-                            x_train[train_idx],
-                            y_train[train_idx],
-                            x_train[val_idx],
-                            y_train[val_idx],
-                            0.0,
-                        )
-
-            for x_train, y_train, x_val, y_val, val_percentage in generate_splits(
-                x_train_full,
-                y_train_full,
-                x_val_full,
-                y_val_full,
-                val_split,
-                autotune_n_splits,
-                autotune_n_repeats,
-            ):
-                bs = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128])
-                lr = trial.suggest_float("learning_rate", 1e-4, 1e-1, log=True)
-                up_ratio = trial.suggest_float("upsampling_ratio", 0.0, 1.0, step=0.25)
-                up_mode_suggested = trial.suggest_categorical(
-                    "upsampling_mode", upsampling_choices
+            for split, (train_idx, val_idx) in enumerate(folds):
+                # The pruner's steps are epochs, which every split would report again.
+                additional_callbacks = (
+                    [KerasPruningCallback(trial, autotune_metric)] if split == 0 else []
                 )
-
-                if up_ratio > 0:
-                    up_mode = up_mode_suggested
-                else:
-                    up_mode = upsampling_mode
-
-                wd = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-                mix = trial.suggest_categorical("mixup", [True, False])
-                ls = trial.suggest_categorical("label_smoothing", [True, False])
-                focal = trial.suggest_categorical("focal_loss", [True, False])
-                fg_suggested = trial.suggest_float(
-                    "focal_loss_gamma", 0.5, 4.0, step=0.5
-                )
-                fa_suggested = trial.suggest_float(
-                    "focal_loss_alpha", 0.1, 0.9, step=0.05
-                )
-
-                if focal:
-                    fg, fa = fg_suggested, fa_suggested
-                else:
-                    fg, fa = focal_loss_gamma, focal_loss_alpha
-
-                # For k-Folds this will only really work for the first fold
-                # But makes sense if the trial produces "nan"
-                additional_callbacks = [
-                    optuna.integration.KerasPruningCallback(trial, "val_loss")
-                ]
+                history = None
                 classifier = model.build_linear_classifier(
-                    y_train.shape[1],
-                    x_train.shape[1],
-                    h_units,
-                    dr,
+                    y_train_full.shape[1],
+                    x_train_full.shape[1],
+                    params["hidden_units"],
+                    params["dropout"],
                 )
-                classifier, history = model.train_linear_classifier(
-                    classifier,
-                    x_train,
-                    y_train,
-                    x_val,
-                    y_val,
-                    epochs=epochs,
-                    batch_size=bs,
-                    learning_rate=lr,
-                    val_split=val_percentage,
-                    upsampling_ratio=up_ratio,
-                    upsampling_mode=up_mode,
-                    train_with_mixup=mix,
-                    train_with_label_smoothing=ls,
-                    train_with_focal_loss=focal,
-                    focal_loss_gamma=fg,
-                    focal_loss_alpha=fa,
-                    is_binary_classification=is_binary,
-                    is_multi_label=is_multi_label,
-                    additional_callbacks=additional_callbacks,
-                    weight_decay=wd,
-                )
-                best_score = history.history[autotune_metric][
-                    np.argmax(history.history[autotune_metric])
-                ]
 
-                histories.append(best_score)
-                keras.backend.clear_session()
-                del classifier
-                del history
-                gc.collect()
+                try:
+                    classifier, history = model.train_linear_classifier(
+                        classifier,
+                        x_train_full[train_idx],
+                        y_train_full[train_idx],
+                        np.array([]) if val_idx is None else x_train_full[val_idx],
+                        np.array([]) if val_idx is None else y_train_full[val_idx],
+                        epochs=epochs,
+                        batch_size=params["batch_size"],
+                        learning_rate=params["learning_rate"],
+                        val_split=val_split if val_idx is None else 0.0,
+                        upsampling_ratio=params["upsampling_ratio"],
+                        upsampling_mode=up_mode,
+                        train_with_mixup=params["mixup"],
+                        train_with_label_smoothing=params["label_smoothing"],
+                        train_with_focal_loss=params["focal_loss"],
+                        focal_loss_gamma=fg,
+                        focal_loss_alpha=fa,
+                        is_binary_classification=is_binary,
+                        is_multi_label=is_multi_label,
+                        additional_callbacks=additional_callbacks,
+                        weight_decay=params["weight_decay"],
+                        monitor=autotune_metric,
+                        monitor_mode="max",
+                    )
+                    scores.append(
+                        history.history[autotune_metric][history.restored_epoch]
+                    )
+                finally:
+                    del classifier, history
+                    keras.backend.clear_session()
+                    gc.collect()
 
             if callable(on_trial_result):
                 on_trial_result(trial.number + 1)
 
-            return float(np.mean(histories))
+            return float(np.mean(scores))
 
-        # enqueue the defaults as first trial so that the passed default
-        # hyperparameters are evaluated even if tuning is skipped
-        study.enqueue_trial(
-            {
-                "hidden_units": hidden_units,
-                "dropout": dropout,
-                "batch_size": batch_size,
-                "learning_rate": learning_rate,
-                "upsampling_ratio": upsampling_ratio,
-                "upsampling_mode": upsampling_mode,
-                "mixup": mixup,
-                "label_smoothing": label_smoothing,
-                "focal_loss": use_focal_loss,
-                "focal_loss_gamma": focal_loss_gamma,
-                "focal_loss_alpha": focal_loss_alpha,
-            }
-        )
+        defaults = {
+            "hidden_units": hidden_units,
+            "dropout": dropout,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "upsampling_ratio": upsampling_ratio,
+            "upsampling_mode": upsampling_mode,
+            "weight_decay": weight_decay,
+            "mixup": mixup,
+            "label_smoothing": label_smoothing,
+            "focal_loss": use_focal_loss,
+            "focal_loss_gamma": focal_loss_gamma,
+            "focal_loss_alpha": focal_loss_alpha,
+        }
+
+        study.enqueue_trial(_snap_to_search_space(defaults, space))
 
         try:
             study.optimize(objective, n_trials=autotune_trials)
@@ -936,12 +1107,12 @@ def train_model(
             classifier,
             x_train_full,
             y_train_full,
-            x_val_full,
-            y_val_full,
+            np.array([]),
+            np.array([]),
             epochs=epochs,
             batch_size=batch_size,
             learning_rate=learning_rate,
-            val_split=val_split if len(x_val_full) == 0 else 0.0,
+            val_split=val_split,
             upsampling_ratio=upsampling_ratio,
             upsampling_mode=upsampling_mode,
             train_with_mixup=mixup,
@@ -954,6 +1125,8 @@ def train_model(
             is_multi_label=is_multi_label,
             weight_decay=weight_decay,
             labels=labels,
+            monitor=autotune_metric,
+            monitor_mode="max",
         )
     except model.get_empty_class_exception() as e:
         e.message = (
@@ -962,83 +1135,83 @@ def train_model(
         )
         e.args = (e.message,)
         raise e
-    except Exception as e:
-        raise Exception("Error training model") from e
 
-    try:
-        # Remove activation from last layer before saving
-        classifier.pop()
-        formats = [model_formats] if isinstance(model_formats, str) else model_formats
-        classifier_path = output.removesuffix(".tflite")
+    # Remove activation from last layer before saving
+    classifier.pop()
+    formats = [model_formats] if isinstance(model_formats, str) else model_formats
+    classifier_path = output.removesuffix(".tflite")
 
-        # The settings the classifier was trained with, saved next to it both as a
-        # record and so the GUI can load them again. When autotune ran, the values
-        # are the tuned ones.
-        utils.save_params_file(
-            classifier_path + TRAIN_PARAMS_SUFFIX,
+    # The settings the classifier was trained with, saved next to it both as a
+    # record and so the GUI can load them again. When autotune ran, the values
+    # are the tuned ones.
+    utils.save_params_file(
+        classifier_path + TRAIN_PARAMS_SUFFIX,
+        by_header(
+            TRAIN_PARAMS,
             {
-                "Classifier name": os.path.basename(classifier_path),
-                "Model formats": ", ".join(formats),
-                "Model save mode": model_save_mode,
-                "Bandpass filter minimum": fmin,
-                "Bandpass filter maximum": fmax,
-                "Audio speed": audio_speed,
-                "Crop mode": crop_mode,
-                "Crop overlap": overlap,
-                "Autotune": autotune,
-                "Autotune trials": autotune_trials,
-                "Autotune folds": autotune_n_splits,
-                "Autotune repeats": autotune_n_repeats,
-                "Epochs": epochs,
-                "Batch size": batch_size,
-                "Learning rate": learning_rate,
-                "Hidden units": hidden_units,
-                "Dropout": dropout,
-                "Weight decay": weight_decay,
-                "Use label smoothing": label_smoothing,
-                "Use mixup": mixup,
-                "Use focal loss": use_focal_loss,
-                "Focal loss gamma": focal_loss_gamma,
-                "Focal loss alpha": focal_loss_alpha,
-                "Upsampling mode": upsampling_mode,
-                "Upsampling ratio": upsampling_ratio,
-                # Which helper classes were trained as non-events. Recorded so a run's
-                # helper mode is recoverable from the params file (fork addition).
-                "Non-event prefixes": ", ".join(cfg.NON_EVENT_PREFIXES),
-                "Non-event keep classes": ", ".join(cfg.NON_EVENT_KEEP_CLASSES),
-                # Which species list scoped this run, and what happened to the classes
-                # it left out. Without these a site recognizer's vocabulary is only
-                # recoverable by diffing its _Labels.txt against the library.
-                "Species list": cfg.TRAIN_SPECIES_LIST_FILE,
-                "Species list entries": len(cfg.TRAIN_SPECIES_LIST),
-                "Unlisted handling": (
-                    cfg.UNLISTED_HANDLING if cfg.TRAIN_SPECIES_LIST else ""
-                ),
-                "BirdNET model version": "2.4",
+                "classifier_name": os.path.basename(classifier_path),
+                "model_formats": ", ".join(formats),
+                "model_save_mode": model_save_mode,
+                "fmin": fmin,
+                "fmax": fmax,
+                "audio_speed": audio_speed,
+                "crop_mode": crop_mode,
+                "overlap": overlap,
+                "autotune": autotune,
+                "autotune_trials": autotune_trials,
+                "autotune_n_splits": autotune_n_splits,
+                "autotune_n_repeats": autotune_n_repeats,
+                "autotune_metric": autotune_metric,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "learning_rate": learning_rate,
+                "hidden_units": hidden_units,
+                "dropout": dropout,
+                "weight_decay": weight_decay,
+                "label_smoothing": label_smoothing,
+                "mixup": mixup,
+                "use_focal_loss": use_focal_loss,
+                "focal_loss_gamma": focal_loss_gamma,
+                "focal_loss_alpha": focal_loss_alpha,
+                "upsampling_mode": upsampling_mode,
+                "upsampling_ratio": upsampling_ratio,
+                "birdnet": version,
             },
         )
+        | {
+            # Fork additions, outside TRAIN_PARAMS so --load_params ignores them: they
+            # record which helper classes were non-events and which species list (and
+            # unlisted handling) scoped the run, so both are recoverable from the
+            # artifacts rather than by diffing _Labels.txt against the library.
+            "Non-event prefixes": ", ".join(cfg.NON_EVENT_PREFIXES),
+            "Non-event keep classes": ", ".join(cfg.NON_EVENT_KEEP_CLASSES),
+            "Species list": cfg.TRAIN_SPECIES_LIST_FILE,
+            "Species list entries": len(cfg.TRAIN_SPECIES_LIST),
+            "Unlisted handling": (
+                cfg.UNLISTED_HANDLING if cfg.TRAIN_SPECIES_LIST else ""
+            ),
+        },
+    )
 
-        if "tflite" in formats:
-            model.save_linear_classifier(
-                classifier, output, labels, mode=model_save_mode
-            )
-        if "raven" in formats:
-            model.save_raven_model(classifier, output, labels, mode=model_save_mode)
-        if "detached" in formats:
-            model.save_detached_classifier(
-                classifier,
-                output,
-                labels=labels,
-            )
-    except Exception as e:
-        raise Exception("Error saving model") from e
+    if "tflite" in formats:
+        model.save_linear_classifier(
+            classifier, output, labels, mode=model_save_mode, version=version
+        )
+    if "raven" in formats:
+        model.save_raven_model(
+            classifier, output, labels, mode=model_save_mode, version=version
+        )
+    if "detached" in formats:
+        model.save_detached_classifier(
+            classifier, output, labels=labels, version=version
+        )
 
     save_sample_counts(labels, y_train_full, output)
 
     metrics = None
 
-    if len(x_val_full) > 0:
-        metrics = evaluate_model(classifier, x_val_full, y_val_full, labels)
+    if len(x_test) > 0:
+        metrics = evaluate_model(classifier, x_test, y_test, labels)
 
         if metrics:
             import csv
@@ -1171,6 +1344,8 @@ def evaluate_model(classifier, x_test, y_test, labels, threshold=None):
         recall_score,
         roc_auc_score,
     )
+
+    x_test, y_test = _without_negative_rows(x_test, y_test)
 
     if len(x_test) == 0:
         return {}
@@ -1328,6 +1503,7 @@ def _save_to_cache(
     crop_mode="center",
     is_binary=False,
     is_multi_label=False,
+    model_version: str = DEFAULT_ACOUSTIC_MODEL_VERSION,
 ):
     """Saves training data to cache.
 
@@ -1345,6 +1521,7 @@ def _save_to_cache(
         crop_mode: Mode for cropping samples.
         is_binary: Whether it's a binary classification task.
         is_multi_label: Whether it's a multi-label classification task.
+        model_version: The BirdNET version the samples were embedded with.
     """
     import numpy as np
 
@@ -1366,6 +1543,7 @@ def _save_to_cache(
         audio_speed=audio_speed,
         crop_mode=crop_mode,
         overlap=overlap,
+        model_version=model_version,
     )
 
 
@@ -1376,7 +1554,8 @@ def _load_from_cache(path):
         path: Path to the cache file.
 
     Returns:
-        A tuple of (x_train, y_train, labels, binary_classification, multi_label).
+        A tuple of (x_train, y_train, x_test, y_test, labels, binary_classification,
+        multi_label, model_version).
     """
     import numpy as np
 
@@ -1388,5 +1567,19 @@ def _load_from_cache(path):
     labels = data["labels"]
     binary_classification = bool(data.get("binary_classification", False))
     multi_label = bool(data.get("multi_label", False))
+    model_version = (
+        str(data["model_version"])
+        if "model_version" in data
+        else base_models.version_for_embeddings_dim(x_train.shape[1])
+    )
 
-    return x_train, y_train, x_test, y_test, labels, binary_classification, multi_label
+    return (
+        x_train,
+        y_train,
+        x_test,
+        y_test,
+        labels,
+        binary_classification,
+        multi_label,
+        model_version,
+    )

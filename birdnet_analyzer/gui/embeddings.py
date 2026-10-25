@@ -5,12 +5,8 @@ import gradio as gr
 
 import birdnet_analyzer.gui.localization as loc
 import birdnet_analyzer.gui.utils as gu
-from birdnet_analyzer.embeddings.core import (
-    get_or_create_database as get_embeddings_database,
-)
 from birdnet_analyzer.gui.state import TabState
-
-SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+from birdnet_analyzer.search.core import read_database_settings
 
 
 def run_embeddings_with_tqdm_tracking(
@@ -57,50 +53,38 @@ def run_embeddings(
     file_output,
     progress,
 ):
-    from birdnet_analyzer.embeddings.core import SETTINGS_KEY, embeddings
+    from birdnet_analyzer.embeddings.core import embeddings
 
     gu.validate(input_path, loc.localize("embeddings-input-dir-validation-message"))
     gu.validate(db_directory, loc.localize("embeddings-db-dir-validation-message"))
     gu.validate(db_directory, loc.localize("embeddings-db-name-validation-message"))
 
-    db = get_embeddings_database(db_directory)
+    settings = _existing_database_settings(db_directory)
 
-    try:
-        settings = db.get_metadata(SETTINGS_KEY)
-
-        db.db.close()
-        embeddings(
-            input_path,
-            db_directory,
-            overlap=overlap,
-            n_producers=producers_number,
-            n_workers=workers_number,
-            batch_size=batch_size,
-            audio_speed=settings["AUDIO_SPEED"],
-            fmin=settings["BANDPASS_FMIN"],
-            fmax=settings["BANDPASS_FMAX"],
-            file_output=file_output,
-        )
-    except Exception as e:
-        db.db.close()
-
+    if settings is None:
         audio_speed = gu.slider_to_value(audio_speed)
 
         if fmin is None or fmax is None or fmin < 0 or fmax > 15000 or fmin > fmax:
             raise gr.Error(
                 f"{loc.localize('validation-no-valid-frequency')} [0, 15000]"
-            ) from e
+            )
+    else:
+        audio_speed = settings["AUDIO_SPEED"]
+        fmin = settings["BANDPASS_FMIN"]
+        fmax = settings["BANDPASS_FMAX"]
 
-        embeddings(
-            input_path,
-            db_directory,
-            overlap=overlap,
-            audio_speed=audio_speed,
-            fmin=fmin,
-            fmax=fmax,
-            batch_size=batch_size,
-            file_output=file_output,
-        )
+    embeddings(
+        input_path,
+        db_directory,
+        overlap=overlap,
+        n_producers=producers_number,
+        n_workers=workers_number,
+        batch_size=batch_size,
+        audio_speed=audio_speed,
+        fmin=fmin,
+        fmax=fmax,
+        file_output=file_output,
+    )
 
     gr.Info(f"{loc.localize('embeddings-tab-finish-info')} {db_directory}")
 
@@ -113,8 +97,6 @@ def run_embeddings(
 
 
 def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
-    from birdnet_analyzer.embeddings.core import SETTINGS_KEY
-
     state = TabState("embeddings")
 
     with gr.Tab(loc.localize("embeddings-tab-title")):
@@ -126,6 +108,7 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
             title=loc.localize("embeddings-tab-info-title"),
         )
 
+        @gu.gui_runtime_error_handler
         def select_directory_to_state_and_tb(current, state_key=None):
             path = (
                 gu.select_directory(collect_files=False, state_key=state_key)
@@ -250,41 +233,26 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
 
             fmin_number, fmax_number = gu.bandpass_settings(state)
 
+        @gu.gui_runtime_error_handler
         def select_directory_and_update_tb(current_state):
             dir_name: str = gu.select_directory(
                 state_key="embeddings-db-dir", collect_files=False
             )
 
             if dir_name:
-                if os.path.exists(dir_name):
-                    db = _try_get_database(dir_name)
+                settings = _existing_database_settings(dir_name)
 
-                    if db:
-                        try:
-                            settings = db.get_metadata(SETTINGS_KEY)
-                            gr.Info(loc.localize("embeddings-db-already-exists-info"))
+                if settings is not None:
+                    gr.Info(loc.localize("embeddings-db-already-exists-info"))
 
-                            return (
-                                dir_name,
-                                gr.update(value=dir_name),
-                                gr.update(
-                                    value=settings["AUDIO_SPEED"],
-                                    interactive=False,
-                                ),
-                                gr.update(
-                                    value=settings["BANDPASS_FMIN"],
-                                    interactive=False,
-                                ),
-                                gr.update(
-                                    value=settings["BANDPASS_FMAX"],
-                                    interactive=False,
-                                ),
-                                gr.update(visible=True),
-                            )
-                        except KeyError:
-                            pass
-                        finally:
-                            db.db.close()
+                    return (
+                        dir_name,
+                        gr.update(value=dir_name),
+                        gr.update(value=settings["AUDIO_SPEED"], interactive=False),
+                        gr.update(value=settings["BANDPASS_FMIN"], interactive=False),
+                        gr.update(value=settings["BANDPASS_FMAX"], interactive=False),
+                        gr.update(visible=True),
+                    )
 
                 return (
                     dir_name,
@@ -318,6 +286,7 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
             show_progress="hidden",
         )
 
+        @gu.gui_runtime_error_handler
         def select_file_output_directory_and_update_tb(current):
             file_location = gu.save_file_dialog(
                 state_key="embeddings-file-output",
@@ -367,16 +336,8 @@ def build_embeddings_tab() -> gu.TAB_BUILDER_RESULT:
         )
 
 
-def _try_get_database(db_path: str):
-    """Try to get the database object. Creates or opens the databse.
-    Args:
-        db_path: The path to the database.
-    Returns:
-        The database object or None if it could not be created or opened.
-    """
-    from perch_hoplite.db import sqlite_usearch_impl
-
+def _existing_database_settings(db_directory: str) -> dict | None:
     try:
-        return sqlite_usearch_impl.SQLiteUSearchDB.create(db_path=db_path)
-    except ValueError:
+        return read_database_settings(db_directory)
+    except (FileNotFoundError, KeyError):
         return None

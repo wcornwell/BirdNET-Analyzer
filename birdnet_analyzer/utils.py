@@ -2,20 +2,43 @@
 
 import itertools
 import os
+import warnings
+from functools import cache
 from pathlib import Path
 
 from birdnet_analyzer.config import ALLOWED_FILETYPES, CODES_FILE
 from birdnet_analyzer.logs import setup_logging
 from birdnet_analyzer.settings import write_error_log
 
-SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+# Raised by gradio's own gr.List/gr.Matrix defaults and event loop helpers.
+_UNACTIONABLE_WARNINGS = [
+    (DeprecationWarning, "gradio", "Passing a tuple to 'row_count'"),
+    (DeprecationWarning, "gradio", "The 'col_count' parameter will be removed"),
+    (UserWarning, "gradio", "The `col_count` parameter is deprecated"),
+    (ResourceWarning, "asyncio", "unclosed event loop"),
+]
+
+
+def configure_runtime():
+    """Prepares the process of a shipped application (CLI or GUI).
+
+    Sets defaults for the environment variables read when tensorflow is first
+    imported, keeping any value the user set, and hides the warnings a user cannot
+    act on.
+    """
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+    os.environ.setdefault("WRAPT_DISABLE_EXTENSIONS", "true")
+
+    for category, module, message in _UNACTIONABLE_WARNINGS:
+        warnings.filterwarnings("ignore", message, category, module)
 
 
 def runtime_error_handler(f):
     """Decorator preparing the runtime of the CLI entry points.
 
-    Configures logging, so messages reach the console and the error log file, and
-    catches runtime errors to write them to the error log.
+    Configures logging, so messages reach the console and the error log file,
+    prepares the process with configure_runtime, and catches runtime errors to
+    write them to the error log.
 
     Args:
         f: The function to be decorated.
@@ -26,6 +49,7 @@ def runtime_error_handler(f):
 
     def wrapper(*args, **kwargs):
         setup_logging()
+        configure_runtime()
 
         try:
             return f(*args, **kwargs)
@@ -313,6 +337,11 @@ def list_subdirectories(path: str):
     return filter(lambda el: os.path.isdir(os.path.join(path, el)), os.listdir(path))
 
 
+def parse_folder_labels(folder: str) -> list[str]:
+    return [label for label in (part.strip() for part in folder.split(",")) if label]
+
+
+@cache
 def load_codes() -> dict[str, str]:
     """Loads the eBird codes.
 
@@ -321,7 +350,7 @@ def load_codes() -> dict[str, str]:
     """
     import json
 
-    with open(os.path.join(SCRIPT_DIR, CODES_FILE), encoding="utf-8") as cfile:
+    with open(CODES_FILE, encoding="utf-8") as cfile:
         return json.load(cfile)
 
 

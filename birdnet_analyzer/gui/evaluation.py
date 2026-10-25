@@ -31,6 +31,24 @@ class ProcessorState(typing.NamedTuple):
     prediction_dir: str
 
 
+def _parse_recording_duration(text: str | None) -> float | None:
+    text = (text or "").strip()
+
+    return float(text) if text else None
+
+
+def _require_built_recording_duration(proc_state: ProcessorState, text: str | None):
+    built_with = proc_state.processor.recording_duration
+
+    try:
+        matches = _parse_recording_duration(text) == built_with
+    except ValueError:
+        matches = False
+
+    if not matches:
+        raise gr.Error(loc.localize("eval-tab-error-no-valid-recording-duration"))
+
+
 def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
     state = TabState("evaluation")
 
@@ -76,6 +94,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
         "Duration",
     ]
 
+    @gu.gui_runtime_error_handler
     def download_class_mapping_template():
         try:
             template_mapping = {
@@ -98,11 +117,11 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
 
                 gr.Info(loc.localize("eval-tab-info-mapping-template-saved"))
         except Exception as e:
-            logger.error(f"Error saving mapping template: {e}", exc_info=e)
             raise gr.Error(
                 f"{loc.localize('eval-tab-error-saving-mapping-template')} {e}"
             ) from e
 
+    @gu.gui_runtime_error_handler
     def download_results_table(
         pa: PerformanceAssessor, predictions, labels, class_wise_value, averaging_value
     ):
@@ -134,16 +153,21 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
 
                 gr.Info(loc.localize("eval-tab-info-results-table-saved"))
         except Exception as e:
-            logger.error(f"Error saving results table: {e}", exc_info=e)
             raise gr.Error(
                 f"{loc.localize('eval-tab-error-saving-results-table')} {e}"
             ) from e
 
-    def download_data_table(processor_state: ProcessorState):
+    @gu.gui_runtime_error_handler
+    def download_data_table(
+        processor_state: ProcessorState, recording_duration_value: str
+    ):
         if processor_state is None:
             raise gr.Error(
                 loc.localize("eval-tab-error-calc-metrics-first"), print_exception=False
             )
+
+        _require_built_recording_duration(processor_state, recording_duration_value)
+
         try:
             file_location = gu.save_file_dialog(
                 state_key="eval-data-table",
@@ -205,13 +229,14 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
         if not annotation_dir or not prediction_dir:
             return None
 
+        # Refreshed on every keystroke, so a duration the processor would reject is
+        # left out here; the handlers using the processor refuse the mismatch.
         try:
-            rec_dur = (
-                float(recording_duration_value.strip())
-                if recording_duration_value
-                else None
-            )
-        except (ValueError, TypeError):
+            rec_dur = _parse_recording_duration(recording_duration_value)
+        except ValueError:
+            rec_dur = None
+
+        if rec_dur is not None and not 0 < (sample_duration_value or 0) <= rec_dur:
             rec_dur = None
 
         cols_ann = {
@@ -248,13 +273,11 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
                 score_unannotated_as_empty=score_unannotated_value,
             )
         except KeyError as e:
-            logger.error(f"Column missing in files: {e}", exc_info=e)
             raise gr.Error(
                 f"{loc.localize('eval-tab-error-missing-col')}: {e}. "
                 f"{loc.localize('eval-tab-error-missing-col-info')}"
             ) from e
         except Exception as e:
-            logger.error(f"Error initializing processor: {e}", exc_info=e)
             raise gr.Error(
                 f"{loc.localize('eval-tab-error-init-processor')}: {e}"
             ) from e
@@ -308,6 +331,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
             ]
 
         def get_selection_func(state_key, on_select, column_labels):
+            @gu.gui_runtime_error_handler
             def select_directory(current_files, current_dir):
                 folder = gu.select_folder(state_key=state_key)
 
@@ -680,8 +704,11 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
                 averaging_radio,
             ],
         )
-        download_data_button.click(fn=download_data_table, inputs=[processor_state])
+        download_data_button.click(
+            fn=download_data_table, inputs=[processor_state, recording_duration]
+        )
 
+        @gu.gui_runtime_error_handler
         def download_plot_guarded(plot, plot_name):
             if plot is None:
                 raise gr.Error(
@@ -701,6 +728,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
         # ------------------------------------------------------------------
         # Building / refreshing the processor and the class/recording choices
         # ------------------------------------------------------------------
+        @gu.gui_runtime_error_handler
         def refresh_processor(
             annotation_dir,
             prediction_dir,
@@ -911,12 +939,14 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
 
             return "\n\n".join(lines)
 
+        @gu.gui_runtime_error_handler
         def calculate_metrics(
             proc_state: ProcessorState,
             threshold_value,
             class_wise_value,
             averaging_value,
             score_unannotated_value,
+            recording_duration_value,
             selected_classes_list,
             selected_recordings_list,
             *metrics_checkbox_values,
@@ -927,6 +957,8 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
                     print_exception=False,
                 )
 
+            _require_built_recording_duration(proc_state, recording_duration_value)
+
             metric_ids = tuple(
                 metric_id
                 for value, metric_id in zip(
@@ -935,7 +967,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
                 if value
             )
             if not metric_ids:
-                metric_ids = ("precision", "recall", "f1")
+                raise gr.Error(loc.localize("eval-tab-error-no-metric-selected"))
 
             if not selected_classes_list:
                 selected_classes_list = list(proc_state.processor.classes)
@@ -959,7 +991,6 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
             except gr.Error:
                 raise
             except Exception as e:
-                logger.error(f"Error processing data: {e}", exc_info=e)
                 raise gr.Error(
                     f"{loc.localize('eval-tab-error-during-processing')}: {e}"
                 ) from e
@@ -989,6 +1020,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
                 class_wise,
                 averaging_radio,
                 score_unannotated,
+                recording_duration,
                 select_classes_checkboxgroup,
                 select_recordings_checkboxgroup,
                 *metrics_checkboxes.values(),
@@ -1020,7 +1052,7 @@ def build_evaluation_tab() -> gu.TAB_BUILDER_RESULT:
 
             return gr.update(value=overall_row, column_widths=widths)
 
-        averaging_radio.input(
+        averaging_radio.change(
             recompute_overall,
             inputs=[pa_state, predictions_state, labels_state, averaging_radio],
             outputs=[overall_table],

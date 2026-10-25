@@ -1,17 +1,37 @@
 import csv
+import json
+import logging
 import os
 import platform
 import shutil
+import subprocess
 import tempfile
+from pathlib import Path
+from typing import get_args
 from unittest.mock import patch
 
 import birdnet
 import numpy as np
 import pandas as pd
 import pytest
+import soundfile as sf
 
-from birdnet_analyzer.analyze.core import analyze
+import birdnet_analyzer.config as cfg
+from birdnet_analyzer import logs, settings
+from birdnet_analyzer.analyze import cli as analyze_cli
+from birdnet_analyzer.analyze.core import (
+    _split_tables,
+    analyze,
+    save_as_audacity,
+    save_as_csv,
+    save_as_kaleidoscope,
+    save_as_parquet,
+    save_as_rtable,
+)
+from birdnet_analyzer.analyze.resume import RunMetadata
 from birdnet_analyzer.cli import analyzer_parser
+from birdnet_analyzer.params import load_analysis_params
+from birdnet_analyzer.utils import load_codes
 
 
 @pytest.fixture
@@ -101,8 +121,11 @@ def test_analyze_cli_accepts_full_parser_surface(
 
     kwargs = vars(args)
     assert kwargs["use_perch"] is True
+    assert kwargs["model"] == "perch"
     kwargs.pop("use_perch", None)
     kwargs.pop("load_params")
+    # Perch takes no sensitivity, which the assertion below needs to see flow.
+    kwargs["model"] = "birdnet"
 
     analyze(**kwargs, _return_only=True)
 
@@ -521,6 +544,64 @@ def test_analyze_without_location_passes_no_species_list(
     assert call_kwargs["custom_species_list"] is None
 
 
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_analyze_takes_no_show_progress_argument(
+    mock_run_inference, setup_test_environment
+):
+    env = setup_test_environment
+    mock_run_inference.return_value = object()
+
+    with pytest.raises(TypeError, match="show_progress"):
+        analyze(
+            env["input_dir"], env["output_dir"], show_progress=True, _return_only=True
+        )
+
+
+@pytest.mark.parametrize("coordinate", [{"lat": 50.83}, {"lon": 12.92}])
+@patch("birdnet_analyzer.model_utils.run_geomodel")
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_analyze_rejects_a_single_coordinate(
+    mock_run_inference, mock_run_geomodel, coordinate, setup_test_environment
+):
+    env = setup_test_environment
+
+    with pytest.raises(ValueError, match="both lat and lon"):
+        analyze(env["input_dir"], env["output_dir"], _return_only=True, **coordinate)
+
+    mock_run_geomodel.assert_not_called()
+    mock_run_inference.assert_not_called()
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_analyze_rejects_perch_with_a_custom_classifier(
+    mock_run_inference, setup_test_environment
+):
+    env = setup_test_environment
+
+    with pytest.raises(ValueError, match="Perch"):
+        analyze(
+            env["input_dir"],
+            env["output_dir"],
+            model="perch",
+            classifier="classifier.tflite",
+            _return_only=True,
+        )
+
+    mock_run_inference.assert_not_called()
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_analyze_runs_perch_without_a_custom_classifier(
+    mock_run_inference, setup_test_environment
+):
+    env = setup_test_environment
+    mock_run_inference.return_value = object()
+
+    analyze(env["input_dir"], env["output_dir"], model="perch", _return_only=True)
+
+    assert mock_run_inference.call_args.kwargs["model"] == "perch"
+
+
 def test_match_species_to_model_joins_on_scientific_name():
     """Requested species map onto a model's labels by scientific name; unknowns are
     reported as unmatched."""
@@ -634,18 +715,27 @@ def test_reconcile_species_list_strict_raises(tmp_path):
         )
 
 
-def test_reconcile_species_list_all_unmatched_raises_even_without_strict(tmp_path):
+def test_reconcile_species_list_all_unmatched_raises_even_without_strict(
+    tmp_path, caplog
+):
     """A user list where nothing reconciles must error, not return an empty set: the
     library reads an empty custom list as 'no filter' and would analyze every species,
     the opposite of the user's intent - so this is an error even in the default mode."""
+    import logging
+
     from birdnet_analyzer.model_utils import _reconcile_species_list
 
     slist = tmp_path / "species_list.txt"
     slist.write_text("Foo bar_Not A Bird\nBaz qux_Also Not\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="None of the 2 species"):
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(ValueError, match="None of the 2 species"),
+    ):
         _reconcile_species_list(
             str(slist), ["Turdus migratorius_American Robin"], strict=False
         )
+
+    assert "not filtered" not in caplog.text
 
 
 # The BirdNET example species list as it was before the 3.0 taxonomy update - a
@@ -714,9 +804,7 @@ def test_reconcile_legacy_example_list_file_against_real_3_0_model(tmp_path):
     model_species = birdnet.load("acoustic", "3.0", "onnx", lang="en_us").species_list
 
     slist = tmp_path / "species_list.txt"
-    slist.write_text(
-        "\n".join(_LEGACY_EXAMPLE_SPECIES_LIST) + "\n", encoding="utf-8"
-    )
+    slist.write_text("\n".join(_LEGACY_EXAMPLE_SPECIES_LIST) + "\n", encoding="utf-8")
 
     # strict=True raises (listing any unmatched) if a legacy label fails to reconcile,
     # so a clean return proves every entry mapped onto a current model label.
@@ -761,3 +849,440 @@ def test_reconcile_species_list_geo_collection_is_silent(caplog):
 
     assert matched == {"Turdus migratorius_American Robin"}
     assert caplog.text == ""
+
+
+@pytest.mark.parametrize("requested", [{"Pekania pennanti_Fisher"}, set()])
+def test_reconcile_species_list_warns_when_a_collection_matches_nothing(
+    requested, caplog
+):
+    import logging
+
+    from birdnet_analyzer.model_utils import _reconcile_species_list
+
+    with caplog.at_level(logging.WARNING):
+        matched = _reconcile_species_list(
+            requested, ["Turdus migratorius_American Robin"], strict=False
+        )
+
+    assert matched == set()
+    assert "not filtered" in caplog.text
+
+
+def test_an_analysis_without_detections_writes_every_result_type(
+    setup_test_environment,
+):
+    env = setup_test_environment
+
+    analyze(
+        "birdnet_analyzer/example/soundscape.wav",
+        env["output_dir"],
+        min_conf=0.9999,
+        rtype=list(get_args(cfg.RESULT_TYPES)),
+    )
+
+    for filename in (
+        cfg.OUTPUT_RAVEN_FILENAME,
+        cfg.OUTPUT_CSV_FILENAME,
+        cfg.OUTPUT_KALEIDOSCOPE_FILENAME,
+        cfg.OUTPUT_AUDACITY_FILENAME,
+        cfg.OUTPUT_PARQUET_FILENAME,
+    ):
+        assert os.path.isfile(os.path.join(env["output_dir"], filename)), filename
+
+    assert pd.read_csv(os.path.join(env["output_dir"], cfg.OUTPUT_CSV_FILENAME)).empty
+
+
+def test_split_tables_of_a_relative_input_mirror_it_inside_the_output(
+    tmp_path, monkeypatch
+):
+    sig, rate = sf.read("birdnet_analyzer/example/soundscape.wav")
+    (tmp_path / "rel_in" / "sub").mkdir(parents=True)
+    sf.write(tmp_path / "rel_in" / "a.wav", sig[: 6 * rate], rate)
+    sf.write(tmp_path / "rel_in" / "sub" / "b.wav", sig[: 6 * rate], rate)
+    monkeypatch.chdir(tmp_path)
+
+    analyze("rel_in", "rel_out", min_conf=0, top_n=1, rtype="csv", split_tables=True)
+
+    assert sorted(
+        p.relative_to(tmp_path).as_posix()
+        for p in tmp_path.rglob("*.BirdNET.results.csv")
+    ) == ["rel_out/a.BirdNET.results.csv", "rel_out/sub/b.BirdNET.results.csv"]
+
+
+def test_split_tables_of_a_relative_file_land_in_the_output(tmp_path, monkeypatch):
+    sig, rate = sf.read("birdnet_analyzer/example/soundscape.wav")
+    (tmp_path / "rel_in").mkdir()
+    sf.write(tmp_path / "rel_in" / "a.wav", sig[: 6 * rate], rate)
+    monkeypatch.chdir(tmp_path)
+
+    analyze(
+        "rel_in/a.wav", "rel_out", min_conf=0, top_n=1, rtype="csv", split_tables=True
+    )
+
+    assert [
+        p.relative_to(tmp_path).as_posix()
+        for p in tmp_path.rglob("*.BirdNET.results.csv")
+    ] == ["rel_out/a.BirdNET.results.csv"]
+
+
+@patch("birdnet_analyzer.model_utils.run_geomodel")
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_a_location_at_zero_is_kept_in_the_params_file(
+    mock_run_inference, mock_run_geomodel, setup_test_environment
+):
+    env = setup_test_environment
+    mock_run_inference.return_value.to_dataframe.return_value = pd.DataFrame(
+        {
+            "input": ["a.wav"],
+            "start_time": [0.0],
+            "end_time": [3.0],
+            "species_name": ["Turdus migratorius_American Robin"],
+            "confidence": [0.5],
+        }
+    )
+
+    analyze(
+        "birdnet_analyzer/example/soundscape.wav",
+        env["output_dir"],
+        lat=0.0,
+        lon=0.0,
+        rtype="csv",
+        save_params=True,
+    )
+
+    kwargs = load_analysis_params(
+        os.path.join(env["output_dir"], cfg.ANALYSIS_PARAMS_FILENAME)
+    )
+    assert (kwargs.get("lat"), kwargs.get("lon")) == (0.0, 0.0)
+
+
+def _mock_result(mock_run_inference, detections, inputs=(), unprocessable=()):
+    result = mock_run_inference.return_value
+    result.to_dataframe.return_value = detections
+    result.inputs = np.array([str(f) for f in inputs], dtype=object)
+    result.get_unprocessed_files.return_value = {Path(f) for f in unprocessable}
+    result.model_path = "model.tflite"
+    result.model_fmin, result.model_fmax, result.model_sr = 0, 15000, 48000
+    result.segment_duration_s = result.hop_duration_s = 3.0
+
+
+@pytest.mark.parametrize(
+    "species",
+    [{"slist": "species_list.txt"}, {"lat": 50.83, "lon": 12.92, "week": 20}],
+    ids=["species-list", "location"],
+)
+@patch("birdnet_analyzer.model_utils.run_geomodel")
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_the_params_file_reads_back_as_the_arguments_of_the_analysis(
+    mock_run_inference, mock_run_geomodel, tmp_path, species
+):
+    _mock_result(mock_run_inference, _detections_in_three_files(tmp_path / "in"))
+    arguments = {
+        "model": "birdnet",
+        "birdnet": "2.4",
+        "min_conf": 0.3,
+        "classifier": str(tmp_path / "cc.tflite"),
+        "cc_species_list": str(tmp_path / "cc_Labels.txt"),
+        "sensitivity": 1.25,
+        "overlap": 0.5,
+        "fmin": 150,
+        "fmax": 12000,
+        "audio_speed": 2.0,
+        "batch_size": 4,
+        "n_workers": 2,
+        "n_producers": 3,
+        "rtype": ["csv"],
+        "sf_thresh": 0.05,
+        "top_n": 5,
+        "merge_consecutive": 3,
+        "locale": "de",
+        "additional_columns": ["lat", "model"],
+        "split_tables": False,
+        **species,
+    }
+
+    analyze(str(tmp_path / "in"), str(tmp_path / "out"), save_params=True, **arguments)
+
+    assert (
+        load_analysis_params(str(tmp_path / "out" / cfg.ANALYSIS_PARAMS_FILENAME))
+        == arguments
+    )
+
+
+@pytest.mark.parametrize(
+    ("rtype", "expected_warnings"),
+    [
+        (
+            "table",
+            [
+                "The --additional_columns argument is only valid for CSV and parquet "
+                "output. It will be ignored."
+            ],
+        ),
+        ("csv", []),
+        ("parquet", []),
+    ],
+)
+def test_the_cli_warns_when_additional_columns_cannot_be_written(
+    tmp_path, monkeypatch, caplog, rtype, expected_warnings
+):
+    monkeypatch.setattr(settings, "ERROR_LOG_FILE", str(tmp_path / "error_log.txt"))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "birdnet-analyze",
+            str(tmp_path),
+            "--rtype",
+            rtype,
+            "--additional_columns",
+            "lat",
+        ],
+    )
+
+    with patch.object(analyze_cli, "analyze") as mock_analyze:
+        try:
+            analyze_cli.main()
+        finally:
+            logs._remove_installed_handlers()
+
+    mock_analyze.assert_called_once()
+    assert [
+        r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+    ] == expected_warnings
+
+
+def test_the_cli_writes_the_parameters_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ERROR_LOG_FILE", str(tmp_path / "error_log.txt"))
+    monkeypatch.setattr("sys.argv", ["birdnet-analyze", str(tmp_path)])
+
+    with patch.object(analyze_cli, "analyze") as mock_analyze:
+        try:
+            analyze_cli.main()
+        finally:
+            logs._remove_installed_handlers()
+
+    assert mock_analyze.call_args.kwargs.get("save_params") is True
+
+
+def _link_directory(link, target):
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def _split(detections, audio_input_path, output, rtypes):
+    _split_tables(
+        detections,
+        inputs=list(detections["input"].unique()),
+        audio_input_path=audio_input_path,
+        output=output,
+        rtypes=rtypes,
+        bandpass_fmin=0,
+        bandpass_fmax=15000,
+        meta=RunMetadata(
+            model_path="model",
+            model_fmin=0,
+            model_fmax=15000,
+            model_sr=48000,
+            segment_duration_s=3.0,
+            hop_duration_s=3.0,
+        ),
+        audio_speed=1.0,
+        additional_columns=None,
+        column_values={},
+    )
+
+
+def test_split_tables_keep_files_reached_through_a_link_under_the_link(tmp_path):
+    (tmp_path / "in").mkdir()
+    (tmp_path / "outside").mkdir()
+    _link_directory(tmp_path / "in" / "linked", tmp_path / "outside")
+    detections = pd.DataFrame(
+        {
+            "input": [str(tmp_path / "in" / "linked" / "b.wav")],
+            "start_time": [0.0],
+            "end_time": [3.0],
+            "species_name": ["Turdus migratorius_American Robin"],
+            "confidence": [0.5],
+        }
+    )
+
+    _split(detections, tmp_path / "in", tmp_path / "out", ["csv"])
+
+    assert (tmp_path / "out" / "linked" / "b.BirdNET.results.csv").is_file()
+
+
+def _detections_in_three_files(input_dir):
+    files = [input_dir / "a.wav", input_dir / "b.wav", input_dir / "sub" / "c.wav"]
+    for afile in files:
+        afile.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(afile, np.zeros(6 * 48000, dtype="float32"), 48000)
+    a, b, c = (str(afile) for afile in files)
+
+    return pd.DataFrame(
+        {
+            "input": [a, a, b, c, c],
+            "start_time": np.array([0, 3, 0, 0, 3], dtype="float32"),
+            "end_time": np.array([3, 6, 3, 3, 6], dtype="float32"),
+            "species_name": [
+                "Turdus migratorius_American Robin",
+                "Cardinalis cardinalis_Northern Cardinal",
+                "Turdus migratorius_American Robin",
+                "Turdus migratorius_American Robin",
+                "Cardinalis cardinalis_Northern Cardinal",
+            ],
+            "confidence": np.array([0.5, 0.75, 0.875, 0.5, 0.25], dtype="float32"),
+        }
+    )
+
+
+def test_split_tables_write_each_file_what_its_writer_writes(tmp_path):
+    detections = _detections_in_three_files(tmp_path / "in")
+    writers = {
+        "selection.table.txt": lambda df, out: save_as_rtable(
+            df, 0, 15000, 0, 15000, 1.0, out
+        ),
+        "results.csv": save_as_csv,
+        "results.kaleidoscope.csv": save_as_kaleidoscope,
+        "results.txt": save_as_audacity,
+        "results.parquet": save_as_parquet,
+    }
+
+    _split(
+        detections, tmp_path / "in", tmp_path / "out", list(get_args(cfg.RESULT_TYPES))
+    )
+
+    written = sorted(
+        p.relative_to(tmp_path / "out").as_posix()
+        for p in (tmp_path / "out").rglob("*.BirdNET.*")
+    )
+    assert written == [
+        f"{stem}.BirdNET.{suffix}"
+        for stem in ("a", "b", "sub/c")
+        for suffix in sorted(writers)
+    ]
+    for name in written:
+        stem, suffix = name.split(".BirdNET.")
+        afile = str(tmp_path / "in" / f"{stem}.wav")
+        expected = tmp_path / "expected" / name
+
+        writers[suffix](detections[detections["input"] == afile], expected)
+
+        assert (tmp_path / "out" / name).read_bytes() == expected.read_bytes(), name
+
+
+def test_a_split_run_parses_the_species_codes_once(tmp_path, monkeypatch):
+    detections = _detections_in_three_files(tmp_path / "in")
+    parsed = []
+    original = json.load
+
+    def counting_load(fp, *args, **kwargs):
+        parsed.append(fp.name)
+        return original(fp, *args, **kwargs)
+
+    monkeypatch.setattr(json, "load", counting_load)
+    load_codes.cache_clear()
+
+    _split(detections, tmp_path / "in", tmp_path / "out", ["table"])
+
+    assert parsed == [cfg.CODES_FILE]
+
+
+SPLIT_SUFFIXES = [
+    "results.csv",
+    "results.kaleidoscope.csv",
+    "results.parquet",
+    "results.txt",
+    "selection.table.txt",
+]
+
+
+def _split_files(output):
+    return sorted(p.relative_to(output).as_posix() for p in output.rglob("*.BirdNET.*"))
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_split_tables_write_every_result_type_for_each_analysed_input(
+    mock_run_inference, tmp_path
+):
+    detections = _detections_in_three_files(tmp_path / "in")
+    b = str(tmp_path / "in" / "b.wav")
+    _mock_result(mock_run_inference, detections[detections["input"] != b])
+
+    analyze(
+        str(tmp_path / "in"),
+        str(tmp_path / "out"),
+        rtype=list(get_args(cfg.RESULT_TYPES)),
+        split_tables=True,
+    )
+
+    assert _split_files(tmp_path / "out") == [
+        f"{stem}.BirdNET.{suffix}"
+        for stem in ("a", "b", "sub/c")
+        for suffix in SPLIT_SUFFIXES
+    ]
+    assert pd.read_csv(tmp_path / "out" / "b.BirdNET.results.csv").empty
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_raven_times_run_on_across_the_files_without_detections(
+    mock_run_inference, tmp_path
+):
+    detections = _detections_in_three_files(tmp_path / "in")
+    b = str(tmp_path / "in" / "b.wav")
+    _mock_result(mock_run_inference, detections[detections["input"] != b])
+
+    analyze(str(tmp_path / "in"), str(tmp_path / "out"))
+
+    table = pd.read_csv(tmp_path / "out" / cfg.OUTPUT_RAVEN_FILENAME, sep="\t")
+    assert table["Begin Time (s)"].tolist() == [0.0, 3.0, 12.0, 15.0]
+    assert table["File Offset (s)"].tolist() == [0.0, 3.0, 0.0, 3.0]
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_split_tables_of_a_file_without_detections_write_its_header(
+    mock_run_inference, tmp_path
+):
+    detections = _detections_in_three_files(tmp_path / "in")
+    a = tmp_path / "in" / "a.wav"
+    _mock_result(mock_run_inference, detections.iloc[:0], inputs=[a])
+
+    analyze(str(a), str(tmp_path / "out"), rtype="csv", split_tables=True)
+
+    assert pd.read_csv(tmp_path / "out" / "a.BirdNET.results.csv").empty
+
+
+@patch("birdnet_analyzer.model_utils.run_inference")
+def test_split_tables_write_no_file_for_an_unprocessable_input(
+    mock_run_inference, tmp_path
+):
+    detections = _detections_in_three_files(tmp_path / "in")
+    b = str(tmp_path / "in" / "b.wav")
+    _mock_result(
+        mock_run_inference, detections[detections["input"] != b], unprocessable=[b]
+    )
+
+    analyze(str(tmp_path / "in"), str(tmp_path / "out"), rtype="csv", split_tables=True)
+
+    assert _split_files(tmp_path / "out") == [
+        "a.BirdNET.results.csv",
+        "sub/c.BirdNET.results.csv",
+    ]
+
+
+def test_split_tables_write_nothing_for_an_unused_input_category(tmp_path):
+    detections = _detections_in_three_files(tmp_path / "in")
+    categories = [*detections["input"].unique(), str(tmp_path / "in" / "unused.wav")]
+    detections = detections.astype({"input": pd.CategoricalDtype(categories)})
+
+    _split(detections, tmp_path / "in", tmp_path / "out", ["csv"])
+
+    assert sorted(
+        p.relative_to(tmp_path / "out").as_posix()
+        for p in (tmp_path / "out").rglob("*.csv")
+    ) == ["a.BirdNET.results.csv", "b.BirdNET.results.csv", "sub/c.BirdNET.results.csv"]

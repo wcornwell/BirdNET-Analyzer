@@ -243,6 +243,22 @@ def test_saving_under_an_invalid_name_shows_an_error(appdir):
     assert settings.list_presets("multi") == []
 
 
+def test_a_failing_delete_is_logged_and_shown(appdir, monkeypatch):
+    _, controls, demo = build_tab()
+    logged = []
+    monkeypatch.setattr(utils, "write_error_log", logged.append)
+
+    def fail(*args, **kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr(settings, "delete_preset", fail)
+
+    with pytest.raises(gr.Error, match="disk"):
+        find_click_handler(demo, controls.delete_button)("Project A")
+
+    assert len(logged) == 1
+
+
 def test_loading_without_a_selection_changes_nothing(appdir):
     _, controls, demo = build_tab()
 
@@ -445,7 +461,18 @@ def test_the_train_params_of_a_previous_run_are_read_back(appdir, tmp_path):
         "focal_loss_alpha_slider": 0.25,
         "upsampling_mode_radio": "repeat",
         "upsampling_ratio_slider": 0.5,
+        "birdnet_version_radio": "2.4",
     }
+
+
+def test_a_train_params_file_without_a_version_is_a_2_4_one(appdir, tmp_path):
+    path = train_params_file(tmp_path)
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines(keepends=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(line for line in lines if "BirdNET model version" not in line)
+
+    assert presets.load_train_params(path)["birdnet_version_radio"] == "2.4"
 
 
 def test_an_old_train_params_file_is_still_understood(appdir, tmp_path):
@@ -510,6 +537,7 @@ def test_an_old_train_params_file_is_still_understood(appdir, tmp_path):
         "use_focal_loss_checkbox": False,
         "focal_loss_alpha_slider": 0.25,
         "focal_loss_gamma_slider": 2.0,
+        "birdnet_version_radio": "2.4",
     }
 
 

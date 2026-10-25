@@ -4,10 +4,8 @@ import threading
 from contextlib import contextmanager
 from math import isclose
 
-import librosa
 import numpy as np
 import soundfile as sf
-from scipy.signal import find_peaks, lfilter
 
 import birdnet_analyzer.config as cfg
 
@@ -68,6 +66,8 @@ def open_audio_file(
     Returns:
         Returns the audio time series and the sampling rate.
     """
+    import librosa
+
     if speed == 1.0:
         with mpeg_safe_open(path):
             sig, rate = librosa.load(
@@ -131,6 +131,7 @@ def get_audio_file_length(path):
     Returns:
         float: The duration of the audio file in seconds.
     """
+    import librosa
 
     with mpeg_safe_open(path):
         return librosa.get_duration(path=path, sr=None)  # ty:ignore[invalid-argument-type]
@@ -146,6 +147,8 @@ def get_sample_rate(path: str):
     Returns:
         int: The sample rate of the audio file.
     """
+    import librosa
+
     with mpeg_safe_open(path):
         return librosa.get_samplerate(path)
 
@@ -317,6 +320,8 @@ def smart_crop_signal(sig, rate, sig_length, sig_overlap, sig_minlen):
     if len(splits) <= 1:
         return splits
 
+    from scipy.signal import find_peaks
+
     energies = []
     for split in splits:
         energy = np.sqrt(np.mean(split**2))
@@ -367,7 +372,7 @@ def bandpass(sig, rate, fmin, fmax, order=5, sig_fmin=0, sig_fmax=15000):
     if (fmin == sig_fmin and fmax == sig_fmax) or fmin > fmax:
         return sig
 
-    from scipy.signal import butter
+    from scipy.signal import butter, lfilter
 
     nyquist = 0.5 * rate
 

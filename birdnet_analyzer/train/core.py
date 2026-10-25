@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from birdnet_analyzer.config import DEFAULT_ACOUSTIC_MODEL_VERSION
+
 if TYPE_CHECKING:
+    from birdnet.globals import ACOUSTIC_MODEL_VERSIONS
+
     from birdnet_analyzer.config import (
         AUTOTUNE_METRICS,
         SAMPLE_CROP_MODES,
@@ -47,21 +51,27 @@ def train(
     autotune: bool = False,
     autotune_trials: int = 50,
     autotune_n_repeats: int = 1,
-    autotune_n_splits: int = 3,
+    autotune_n_splits: int = 1,
     autotune_metric: AUTOTUNE_METRICS = "val_AUPRC",
+    birdnet: ACOUSTIC_MODEL_VERSIONS = DEFAULT_ACOUSTIC_MODEL_VERSION,  # ty:ignore[invalid-parameter-default]
 ):
     """
     Trains a custom classifier model using the BirdNET-Analyzer framework.
     Args:
         audio_input (str): Path to the training data directory or path to a cache file
                            ("train_cache.npz" for example).
-        test_data (str, optional): Path to the test data directory. Defaults to None.
-                                   If not specified, a validation split will be used.
+        birdnet (Literal["2.4", "3.0"], optional): The BirdNET version to train on. Its
+            embeddings are the classifier's input, so the classifier only works with
+            that version. A cache file keeps the version it was embedded with.
+            Defaults to the newest version.
+        test_data (str, optional): Path to the test data directory, only used to
+                                   evaluate the trained classifier. Defaults to None.
         output (str, optional): Path to save the trained model.
                                 Defaults to "checkpoints/custom/Custom_Classifier".
         crop_mode (Literal["center", "first", "segments", "smart"], optional): Mode for
             cropping audio samples. Defaults to "center".
-        overlap (float, optional): Overlap ratio for audio segments. Defaults to 0.0.
+        overlap (float, optional): Overlap of the segments in seconds for the
+            "segments" and "smart" crop modes. Defaults to 0.0.
         epochs (int, optional): Number of training epochs. Defaults to 50.
         batch_size (int, optional): Batch size for training. Defaults to 32.
         val_split (float, optional): Fraction of data to use for validation.
@@ -82,8 +92,8 @@ def train(
                                 Defaults to False.
         upsampling_ratio (float, optional): Ratio for upsampling underrepresented
                                             classes. Defaults to 0.0.
-        upsampling_mode (Literal["repeat", "mean", "smote"], optional): Mode for
-            upsampling. Defaults to "repeat".
+        upsampling_mode (Literal["repeat", "linear", "mean", "smote"], optional):
+            Mode for upsampling. Defaults to "repeat".
         non_event_prefixes (str, optional): Comma-separated class-name prefixes whose
             folders are trained as non-events (all-zero hard-negative rows, no output
             neuron) instead of positive classes. Defaults to "".
@@ -91,7 +101,8 @@ def train(
             positive, reportable classes even when they match a non_event_prefixes
             prefix. Defaults to "".
         model_formats (list[Literal["tflite", "raven", "detached"]] | str, optional):
-            One or more formats to save the trained model. Defaults to "tflite".
+            One or more formats to save the trained model; "detached" is the
+            classifier alone, taking embeddings. Defaults to "tflite".
         model_save_mode (Literal["replace", "append"], optional): Save mode for the
             model. Defaults to "replace".
         save_cache_to (str | None, optional): Path to save the cache file.
@@ -109,11 +120,10 @@ def train(
         autotune_n_repeats (int, optional): Number of times to repeat each trial during
                                            hyperparameter tuning. Defaults to 1.
         autotune_n_splits (int, optional): Number of splits for cross-validation during
-                                          hyperparameter tuning. Defaults to 3.
-        autotune_metric (Literal["val_AUPRC", "val_loss"], optional): Metric to optimize
-            during hyperparameter tuning. Defaults to "val_AUPRC".
-        save_detached_classifier (bool, optional): Whether to additionally save a
-            detached version of the trained classifier. Defaults to False.
+                                          hyperparameter tuning. Defaults to 1.
+        autotune_metric (Literal["val_AUPRC", "val_AUROC"], optional): Metric to
+            optimize during hyperparameter tuning. Training also stops early on it and
+            keeps the weights of its best epoch. Defaults to "val_AUPRC".
     Returns:
         None
     """
@@ -176,4 +186,5 @@ def train(
         autotune_n_repeats=autotune_n_repeats,
         autotune_n_splits=autotune_n_splits,
         autotune_metric=autotune_metric,
+        birdnet=birdnet,
     )

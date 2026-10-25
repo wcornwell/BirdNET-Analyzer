@@ -16,11 +16,6 @@ def _newest_version(versions: tuple[str, ...]) -> str:
     return max(versions, key=lambda v: tuple(int(part) for part in v.split(".")))
 
 
-# Set TensorFlow environment variables before any other imports
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["WRAPT_DISABLE_EXTENSIONS"] = "true"
-os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
-
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 RANDOM_SEED: int = 42
 
@@ -61,6 +56,15 @@ ADDITIONAL_COLUMNS = Literal[
 ]
 OUTPUT_RAVEN_FILENAME: str = "BirdNET_SelectionTable.txt"
 OUTPUT_KALEIDOSCOPE_FILENAME: str = "BirdNET_Kaleidoscope.csv"
+KALEIDOSCOPE_COLUMNS: list[str] = [
+    "INDIR",
+    "FOLDER",
+    "IN FILE",
+    "OFFSET",
+    "DURATION",
+    "TOP1MATCH",
+    "TOP1DIST",
+]
 OUTPUT_CSV_FILENAME: str = "BirdNET_CombinedTable.csv"
 OUTPUT_AUDACITY_FILENAME: str = "BirdNET_AudacityLabels.txt"
 OUTPUT_PARQUET_FILENAME: str = "BirdNET_CombinedTable.parquet"
@@ -98,7 +102,7 @@ TRAIN_SPECIES_LIST_FILE: str = ""
 # TRAIN_SPECIES_LIST is non-empty. Set via --unlisted.
 UNLISTED_HANDLING: str = "non_event"
 
-UPSAMPLING_MODES = Literal["repeat", "mean", "smote"]
+UPSAMPLING_MODES = Literal["repeat", "linear", "mean", "smote"]
 TRAINED_MODEL_OUTPUT_FORMATS = Literal["tflite", "raven", "detached"]
 TRAINED_MODEL_SAVE_MODES = Literal["replace", "append"]
-AUTOTUNE_METRICS = Literal["val_loss", "val_AUPRC", "val_AUROC"]
+AUTOTUNE_METRICS = Literal["val_AUPRC", "val_AUROC"]

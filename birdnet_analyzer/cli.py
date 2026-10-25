@@ -12,9 +12,15 @@ from birdnet.globals import (
 from birdnet_analyzer.config import (
     ALL_MODEL_LANGUAGES,
     AUTOTUNE_METRICS,
+    CROP_MODES,
     DEFAULT_ACOUSTIC_MODEL_VERSION,
     GEO_MODEL_LANGUAGES,
+    RESULT_TYPES,
+    SAMPLE_CROP_MODES,
+    SCORE_FUNCTIONS,
     TRAINED_MODEL_OUTPUT_FORMATS,
+    TRAINED_MODEL_SAVE_MODES,
+    UPSAMPLING_MODES,
 )
 from birdnet_analyzer.logs import setup_logging
 
@@ -290,19 +296,21 @@ def sigmoid_args():
         "--sensitivity",
         type=lambda a: min(1.5, max(0.5, float(a))),
         default=1.0,
-        help="Detection sensitivity; Higher values result in higher sensitivity. Values in [0.5, 1.5]. Values other than 1.0 will shift the sigmoid function on the x-axis. Use complementary to the cut-off threshold. Only applies to BirdNET 2.4 and custom classifiers; ignored for BirdNET 3.0 (which applies the sigmoid inside the model) and Perch.",
+        help="Detection sensitivity; Higher values result in higher sensitivity. Values in [0.5, 1.5]. Values other than 1.0 will shift the sigmoid function on the x-axis. Use complementary to the cut-off threshold. Applies to every BirdNET model and custom classifier; ignored for Perch.",
     )
 
     return p
 
 
-def overlap_args(help_string="Overlap of prediction segments. Values in [0.0, 2.9]."):
+def overlap_args(
+    help_string="Overlap of prediction segments. Values in [0.0, 2.9].", maximum=2.9
+):
     """Argument parser for the overlap of prediction segments."""
     p = argparse.ArgumentParser(add_help=False)
 
     p.add_argument(
         "--overlap",
-        type=lambda a: max(0.0, min(4.9, float(a))),
+        type=lambda a: max(0.0, min(maximum, float(a))),
         default=0.0,
         help=help_string,
     )
@@ -390,7 +398,7 @@ def bs_args(default=1):
         "--batch_size",
         type=lambda a: max(1, int(a)),
         default=default,
-        help="Number of samples to process at the same time.",
+        help="Number of samples to process at the same time. A custom classifier trained on BirdNET 3.0 always processes 1.",
     )
 
     return p
@@ -439,7 +447,11 @@ def analyzer_parser():
         bandpass_args(),
         species_args(),
         sigmoid_args(),
-        overlap_args(),
+        overlap_args(
+            help_string="Overlap of prediction segments. Values in [0.0, 2.9], or "
+            "[0.0, 4.9] with --use_perch.",
+            maximum=4.9,
+        ),
         audio_speed_args(),
         min_conf_args(),
         locale_args(),
@@ -454,29 +466,31 @@ def analyzer_parser():
         parents=parents,
     )
 
-    class UniqueSetAction(argparse.Action):
+    class UniqueListAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
-            setattr(namespace, self.dest, {v.lower() for v in values})
+            setattr(
+                namespace, self.dest, list(dict.fromkeys(v.lower() for v in values))
+            )
 
     parser.add_argument(
         "--rtype",
-        default={"table"},
-        choices=["table", "audacity", "kaleidoscope", "csv", "parquet"],
+        default=["table"],
+        choices=get_args(RESULT_TYPES),
         nargs="+",
-        help="Specifies output format. Values in `['table', 'audacity',  'kaleidoscope', 'csv', 'parquet']`.",
-        action=UniqueSetAction,
+        help="Specifies output format.",
+        action=UniqueListAction,
     )
     parser.add_argument(
         "--additional_columns",
         choices=POSSIBLE_ADDITIONAL_COLUMNS,
         nargs="+",
         help="Additional columns to include in the output, only applied to the csv and parquet output formats.",
-        action=UniqueSetAction,
+        action=UniqueListAction,
     )
     parser.add_argument(
         "-c",
         "--classifier",
-        help="Path to custom trained classifier. If set, --lat, --lon and --locale are ignored.",
+        help="Path to custom trained classifier. Its species names come from its labels file, so --locale is ignored. --lat and --lon keep only its species that the geo model predicts there, or, with a warning, all of them if it predicts none.",
     )
     parser.add_argument(
         "--cc_species_list",
@@ -485,7 +499,7 @@ def analyzer_parser():
     parser.add_argument(
         "--top_n",
         type=lambda a: max(1, int(a)),
-        help="Saves only the top N predictions for each segment independent of their score. Threshold will be ignored.",
+        help="Saves at most the top N predictions for each segment. --min_conf still applies.",
     )
     parser.add_argument(
         "--merge_consecutive",
@@ -540,7 +554,8 @@ def embeddings_parser():
         "-i",
         "--input",
         dest="audio_input",
-        help="Path to input file or folder, relative to the audio root.",
+        required=True,
+        help="Path to input file or folder.",
     )
 
     parser.add_argument(
@@ -559,29 +574,34 @@ def search_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, parents=parents
     )
 
-    parser.add_argument("-q", "--queryfile", help="Path to the query file.")
-    parser.add_argument("-o", "--output", help="Path to the output folder.")
+    parser.add_argument(
+        "-q", "--queryfile", required=True, help="Path to the query file."
+    )
+    parser.add_argument(
+        "-o", "--output", required=True, help="Path to the output folder."
+    )
     parser.add_argument(
         "--n_results", default=10, type=int, help="Number of results to return."
     )
 
-    # TODO: use choice argument.
     parser.add_argument(
         "--score_function",
         default="cosine",
-        choices=["cosine", "euclidean", "dot"],
-        help="Scoring function to use. Choose 'cosine', 'euclidean' or 'dot'. Defaults to 'cosine'.",
+        choices=get_args(SCORE_FUNCTIONS),
+        help="Scoring function to use.",
     )
     parser.add_argument(
         "--crop_mode",
         default="center",
-        choices=["center", "first", "segments"],
-        help="Crop mode for the query sample. Can be 'center', 'first' or 'segments'.",
+        choices=get_args(CROP_MODES),
+        help="Crop mode for the query sample.",
     )
 
     parser.add_argument(
         "--audio_root",
-        help="Path to the root directory of audio files.",
+        required=True,
+        help="Folder that the audio paths in the database are relative to: the "
+        "parent of the input path the embeddings were extracted from.",
     )
 
     return parser
@@ -634,7 +654,7 @@ def segments_parser():
         "--collection_mode",
         default="random",
         choices=["random", "confidence", "balanced"],
-        help="Collection mode for selecting the segments. Can be 'random' or 'confidence'.",
+        help="Collection mode for selecting the segments. Can be 'random', 'confidence' or 'balanced'.",
     )
     parser.add_argument(
         "--n_bins",
@@ -647,12 +667,12 @@ def segments_parser():
 
 
 def species_parser():
-    """Build the argument parser for retrieving a species list for a location."""
+    """Build the argument parser for retrieving a species list."""
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         parents=[
             species_list_args(),
-            # The species list comes from the geo model, so only its languages apply.
+            # The geo model's languages, which the default acoustic model shares.
             locale_args(languages=GEO_MODEL_LANGUAGES),
             verbosity_args(),
         ],
@@ -677,7 +697,7 @@ def train_parser():
             threads_args(),
             bs_args(32),
             overlap_args(
-                help_string="Overlap of training data segments in seconds if crop_mode is 'segments'."
+                help_string="Overlap of training data segments in seconds if crop_mode is 'segments'. Values in [0.0, 2.9]."
             ),
             load_params_args("training run", "*.birdnet.train-params.csv"),
             verbosity_args(),
@@ -694,13 +714,19 @@ def train_parser():
     )
     parser.add_argument(
         "--test_data",
-        help="Path to test data folder. If not specified, a random validation split will be used.",
+        help="Path to test data folder. It is only used to evaluate the trained classifier; tuning and early stopping use the validation split of the training data.",
     )
     parser.add_argument(
         "--crop_mode",
         default="center",
-        choices=["center", "first", "segments", "smart"],
-        help="Crop mode for training data. Can be 'center', 'first', 'segments' or 'smart'.",
+        choices=get_args(SAMPLE_CROP_MODES),
+        help="Crop mode for training data.",
+    )
+    parser.add_argument(
+        "--birdnet",
+        default=DEFAULT_ACOUSTIC_MODEL_VERSION,
+        choices=get_args(ACOUSTIC_MODEL_VERSIONS),
+        help="BirdNET version to train on. Its embeddings are the classifier's input, so the classifier only works with this version. A cache file keeps the version it was created with.",
     )
     parser.add_argument(
         "-o", "--output", default=c, help="Path to trained classifier model output."
@@ -715,7 +741,7 @@ def train_parser():
         "--val_split",
         type=float,
         default=0.2,
-        help="A small percentage of the training data that is not used for training, but for validation scores during training.",
+        help="A small percentage of the training data that is not used for training, but for validation scores and early stopping during training. Must be above 0.",
     )
     parser.add_argument(
         "--learning_rate",
@@ -775,7 +801,7 @@ def train_parser():
     parser.add_argument(
         "--upsampling_mode",
         default="repeat",
-        choices=["repeat", "linear", "mean", "smote"],
+        choices=get_args(UPSAMPLING_MODES),
         help="Upsampling mode.",
     )
     parser.add_argument(
@@ -816,16 +842,17 @@ def train_parser():
         nargs="+",
         default=["tflite"],
         choices=get_args(TRAINED_MODEL_OUTPUT_FORMATS),
-        help="Model output format(s). One or more of 'tflite', 'raven', 'detached'.",
+        help="Model output format(s).",
     )
     parser.add_argument(
         "--model_save_mode",
         default="replace",
-        choices=["replace", "append"],
+        choices=get_args(TRAINED_MODEL_SAVE_MODES),
         help="Model save mode. 'replace' will overwrite the original classification layer and 'append' will combine the original classification layer with the new one.",
     )
     parser.add_argument(
-        "--save_cache_to", default="train_cache.npz", help="Path to cache file."
+        "--save_cache_to",
+        help="Path to save the extracted training data to, as a cache file that later runs can use as INPUT. No cache is written unless this is set.",
     )
     parser.add_argument(
         "--autotune",
@@ -843,19 +870,19 @@ def train_parser():
         "--autotune_n_splits",
         type=int,
         default=1,
-        help="Number of folds for cross-validation during hyperparameter tuning. If set to >1, the training data will be split into k folds and each training run will be executed k times with a different fold as validation data and the rest as training data. Keep in mind that this will significantly increase the runtime of the hyperparameter tuning process.",
+        help="Number of folds for cross-validation during hyperparameter tuning. If set to >1, the training data will be split into k folds and each training run will be executed k times with a different fold as validation data and the rest as training data. This multiplies the tuning time and is mainly worth it for small datasets of a few hundred samples.",
     )
     parser.add_argument(
         "--autotune_n_repeats",
         type=int,
         default=1,
-        help="Number of repetitions for each training run during hyperparameter tuning. If set to >1, each training run will be executed multiple times and the average validation score across all repetitions will be used as the score for the training run. This can help to get more robust estimates of the validation scores for each training run, but it will also increase the runtime of the hyperparameter tuning process.",
+        help="Number of repetitions for each training run during hyperparameter tuning. If set to >1, each training run will be executed multiple times and the average validation score across all repetitions will be used as the score for the training run. This can help to get more robust estimates of the validation scores for each training run, but it will also increase the runtime of the hyperparameter tuning process. Only used when --autotune_n_splits is greater than 1.",
     )
     parser.add_argument(
         "--autotune_metric",
         default="val_AUPRC",
         choices=get_args(AUTOTUNE_METRICS),
-        help="Metric to optimize during hyperparameter tuning. This can be any metric that is returned by the training process and is included in the training history object. Common choices are 'val_loss', 'val_AUPRC' or 'val_AUROC'.",
+        help="Validation metric to optimize during hyperparameter tuning. Training also stops early on it and keeps the weights of its best epoch.",
     )
 
     return parser

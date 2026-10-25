@@ -8,6 +8,7 @@ import birdnet_analyzer.gui.localization as loc
 import birdnet_analyzer.gui.utils as gu
 from birdnet_analyzer import utils
 from birdnet_analyzer.analyze.core import (
+    result_dataframe,
     save_as_csv,
     save_as_kaleidoscope,
     save_as_rtable,
@@ -16,11 +17,24 @@ from birdnet_analyzer.gui.state import TabState
 
 MATPLOTLIB_FIGURE_NUM = "single-file-tab-spectrogram-plot"
 MAX_TABLE_ROWS = 50
-HEADER_START_LBL = loc.localize("single-tab-output-header-start")
-HEADER_END_LBL = loc.localize("single-tab-output-header-end")
-HEADER_SCI_NAME_LBL = loc.localize("single-tab-output-header-sci-name")
-HEADER_COMMON_NAME_LBL = loc.localize("single-tab-output-header-common-name")
-HEADER_CONFIDENCE_LBL = loc.localize("single-tab-output-header-confidence")
+_HEADER_LABELS = {
+    "HEADER_START_LBL": "single-tab-output-header-start",
+    "HEADER_END_LBL": "single-tab-output-header-end",
+    "HEADER_SCI_NAME_LBL": "single-tab-output-header-sci-name",
+    "HEADER_COMMON_NAME_LBL": "single-tab-output-header-common-name",
+    "HEADER_CONFIDENCE_LBL": "single-tab-output-header-confidence",
+}
+
+
+def _header_labels() -> list[str]:
+    return [loc.localize(key) for key in _HEADER_LABELS.values()]
+
+
+def __getattr__(name: str) -> str:
+    if name in _HEADER_LABELS:
+        return loc.localize(_HEADER_LABELS[name])
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @gu.gui_runtime_error_handler
@@ -91,7 +105,8 @@ def run_single_file_analysis(
             time_str = time_str[: time_str.index(".") + 2]
         return time_str
 
-    table = predictions.to_dataframe()
+    detections = result_dataframe(predictions, merge_consecutive)
+    table = detections.copy()
     n_total = table.shape[0]
 
     if n_total > MAX_TABLE_ROWS:
@@ -107,47 +122,47 @@ def run_single_file_analysis(
         )
 
     n_rows = table.shape[0]
+    start_lbl, end_lbl, sci_name_lbl, common_name_lbl, confidence_lbl = _header_labels()
 
     if n_rows > 0:
         split_species = table["species_name"].str.split("_", n=1, expand=True)
-        table[HEADER_SCI_NAME_LBL] = split_species[0]
-        table[HEADER_COMMON_NAME_LBL] = (
+        table[sci_name_lbl] = split_species[0]
+        table[common_name_lbl] = (
             split_species[1] if len(split_species.columns) > 1 else ""
         )
     else:
-        table[HEADER_SCI_NAME_LBL] = []
-        table[HEADER_COMMON_NAME_LBL] = []
+        table[sci_name_lbl] = []
+        table[common_name_lbl] = []
 
     table[" "] = ["▶"] * n_rows
     table.rename(
         columns={
-            "start_time": HEADER_START_LBL,
-            "end_time": HEADER_END_LBL,
-            "confidence": HEADER_CONFIDENCE_LBL,
+            "start_time": start_lbl,
+            "end_time": end_lbl,
+            "confidence": confidence_lbl,
         },
         inplace=True,
     )
-    table[HEADER_START_LBL] = table[HEADER_START_LBL].apply(convert_to_time_str)
-    table[HEADER_END_LBL] = table[HEADER_END_LBL].apply(convert_to_time_str)
+    table[start_lbl] = table[start_lbl].apply(convert_to_time_str)
+    table[end_lbl] = table[end_lbl].apply(convert_to_time_str)
     table = table[
         [
             " ",
-            HEADER_START_LBL,
-            HEADER_END_LBL,
-            HEADER_SCI_NAME_LBL,
-            HEADER_COMMON_NAME_LBL,
-            HEADER_CONFIDENCE_LBL,
+            start_lbl,
+            end_lbl,
+            sci_name_lbl,
+            common_name_lbl,
+            confidence_lbl,
         ]
     ]
-    table[HEADER_CONFIDENCE_LBL] = table[HEADER_CONFIDENCE_LBL].apply(
-        lambda x: f"{x:0.3f}"
-    )
+    table[confidence_lbl] = table[confidence_lbl].apply(lambda x: f"{x:0.3f}")
 
     return (
         table,
         gr.update(visible=True),
         {
             "predictions": predictions,
+            "table": detections,
             "fmin": fmin,
             "fmax": fmax,
             "overlap": overlap,
@@ -238,20 +253,14 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
 
         output_dataframe = gr.Dataframe(
             type="pandas",
-            headers=[
-                " ",
-                HEADER_START_LBL,
-                HEADER_END_LBL,
-                HEADER_SCI_NAME_LBL,
-                HEADER_COMMON_NAME_LBL,
-                HEADER_CONFIDENCE_LBL,
-            ],
+            headers=[" ", *_header_labels()],
             elem_id="single-file-output",
             interactive=False,
             buttons=[],
             visible=False,
         )
 
+        @gu.gui_runtime_error_handler
         def select_and_load_audio_file(generate_spectrogram=False):
             """Use webview dialog to select audio file and load it."""
             from birdnet_analyzer import audio
@@ -264,39 +273,37 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             )
 
             if file_path:
-                try:
-                    data, sr = audio.open_audio_file(file_path)
+                data, sr = audio.open_audio_file(file_path)
 
-                    spectrogram = (
-                        gr.update(
-                            visible=True,
-                            value=utils.spectrogram_from_file(
-                                file_path,
-                                fig_size=(20, 4),
-                                fig_num=MATPLOTLIB_FIGURE_NUM,
-                                **gu.spectrogram_settings(),
-                            ),
+                if generate_spectrogram:
+                    try:
+                        figure = utils.spectrogram_from_file(
+                            file_path,
+                            fig_size=(20, 4),
+                            fig_num=MATPLOTLIB_FIGURE_NUM,
+                            **gu.spectrogram_settings(),
                         )
-                        if generate_spectrogram
-                        else gr.update(visible=False)
-                    )
+                    except Exception as e:
+                        raise gr.Error(
+                            loc.localize("single-tab-generate-spectrogram-error")
+                        ) from e
 
-                    return (
-                        file_path,
-                        file_path,
-                        gr.update(
-                            visible=True,
-                            value=(sr, data),
-                            label=os.path.basename(file_path),
-                        ),
-                        gr.update(visible=generate_spectrogram),
-                        spectrogram,
-                        gr.update(interactive=True),
-                    )
-                except Exception as e:
-                    raise gr.Error(
-                        loc.localize("single-tab-generate-spectrogram-error")
-                    ) from e
+                    spectrogram = gr.update(visible=True, value=figure)
+                else:
+                    spectrogram = gr.update(visible=False)
+
+                return (
+                    file_path,
+                    file_path,
+                    gr.update(
+                        visible=True,
+                        value=(sr, data),
+                        label=os.path.basename(file_path),
+                    ),
+                    gr.update(visible=generate_spectrogram),
+                    spectrogram,
+                    gr.update(interactive=True),
+                )
 
             return (
                 gr.update(),
@@ -307,6 +314,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                 gr.update(interactive=False),
             )
 
+        @gu.gui_runtime_error_handler
         def try_generate_spectrogram(audio_path, generate_spectrogram):
             if audio_path and generate_spectrogram:
                 try:
@@ -383,6 +391,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                     "with numeric values."
                 ) from e
 
+        @gu.gui_runtime_error_handler
         def get_selected_audio(evt: gr.SelectData, audio_path):
             from birdnet_analyzer import audio
 
@@ -398,6 +407,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
 
             return gr.update()
 
+        @gu.gui_runtime_error_handler
         def download_rtable(prediction_state):
             if prediction_state:
                 file_location = gu.save_file_dialog(
@@ -408,7 +418,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
 
                 if file_location:
                     save_as_rtable(
-                        prediction_state["predictions"].to_dataframe(),
+                        prediction_state["table"],
                         prediction_state["fmin"],
                         prediction_state["fmax"],
                         prediction_state["predictions"].model_fmin,
@@ -417,6 +427,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                         Path(file_location),
                     )
 
+        @gu.gui_runtime_error_handler
         def download_csv(prediction_state):
             if prediction_state:
                 file_location = gu.save_file_dialog(
@@ -427,21 +438,22 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
 
                 if file_location:
                     save_as_csv(
-                        prediction_state["predictions"].to_dataframe(),
+                        prediction_state["table"],
                         Path(file_location),
                     )
 
+        @gu.gui_runtime_error_handler
         def download_kaleidoscope(prediction_state):
             if prediction_state:
                 file_location = gu.save_file_dialog(
                     state_key="single-file-table",
                     default_filename=cfg.OUTPUT_KALEIDOSCOPE_FILENAME,
-                    filetypes=("Kaleidoscope (*.txt)",),
+                    filetypes=("Kaleidoscope (*.csv)",),
                 )
 
                 if file_location:
                     save_as_kaleidoscope(
-                        prediction_state["predictions"].to_dataframe(),
+                        prediction_state["table"],
                         Path(file_location),
                     )
 

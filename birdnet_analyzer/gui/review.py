@@ -21,6 +21,15 @@ MATPLOTLIB_FIGURE_ID = "review-tab-spectrogram-plot"
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
+def _confidence(path: str) -> float | None:
+    try:
+        value = float(os.path.basename(path).split("_", 1)[0])
+    except ValueError:
+        return None
+
+    return value if 0 <= value <= 1 else None
+
+
 def build_review_tab() -> gu.TAB_BUILDER_RESULT:
     state = TabState("review")
 
@@ -76,17 +85,13 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
         x_vals = []
         y_val = []
 
-        for fl in positives + negatives:
-            try:
-                x_val = float(os.path.basename(fl).split("_", 1)[0])
+        for label, files in ((1, positives), (0, negatives)):
+            for fl in files:
+                x_val = _confidence(fl)
 
-                if 0 > x_val > 1:
-                    continue
-
-                x_vals.append([x_val])
-                y_val.append(1 if fl in positives else 0)
-            except ValueError:
-                pass
+                if x_val is not None:
+                    x_vals.append([x_val])
+                    y_val.append(label)
 
         if (len(positives) + len(negatives)) >= 2 and len(set(y_val)) > 1:
             log_model = linear_model.LogisticRegression(C=55)
@@ -290,12 +295,13 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
 
             return update_dict
 
+        @gu.gui_runtime_error_handler
         def next_review(next_review_state: dict, target_dir: str | None = None):
             try:
                 current_file = next_review_state["files"][0]
-            except IndexError as e:
+            except IndexError:
                 if next_review_state["input_directory"]:
-                    raise gr.Error(loc.localize("review-tab-no-files-error")) from e
+                    raise gr.Error(loc.localize("review-tab-no-files-error")) from None
 
                 return {review_state: next_review_state}
 
@@ -324,12 +330,14 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
 
             return update_values(next_review_state)
 
+        @gu.gui_runtime_error_handler
         def select_subdir(new_value: str, next_review_state: dict):
             if new_value != next_review_state["current_species"]:
                 return update_review(next_review_state, selected_species=new_value)
 
             return {review_state: next_review_state}
 
+        @gu.gui_runtime_error_handler
         def start_review(next_review_state):
             dir_name = gu.select_folder(state_key="review-input-dir")
 
@@ -347,17 +355,6 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
                 return update_review(next_review_state)
 
             return {review_state: next_review_state}
-
-        def try_confidence(filename):
-            try:
-                val = float(os.path.basename(filename).split("_", 1)[0])
-
-                if 0 > val > 1:
-                    return 0
-
-                return val
-            except ValueError:
-                return 0
 
         def update_review(next_review_state: dict, selected_species: str | None = None):
             next_review_state["history"] = []
@@ -381,7 +378,9 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
                 else next_review_state["input_directory"]
             )
 
-            todo_files = sorted(todo_files, key=try_confidence, reverse=True)
+            todo_files = sorted(
+                todo_files, key=lambda f: _confidence(f) or 0, reverse=True
+            )
 
             next_review_state |= {
                 "files": todo_files,
@@ -449,6 +448,7 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
 
             return update_dict
 
+        @gu.gui_runtime_error_handler
         def undo_review(next_review_state):
             if next_review_state["history"]:
                 last_file, last_dir = next_review_state["history"].pop()
@@ -508,15 +508,20 @@ def build_review_tab() -> gu.TAB_BUILDER_RESULT:
             regression_dl_btn,
         ]
 
+        @gu.gui_runtime_error_handler
+        def download_plot(plot, filename):
+            if plot is not None:
+                gu.download_plot(plot, filename)
+
         spectrogram_dl_btn.click(
-            partial(gu.download_plot, filename="spectrogram"),
+            download_plot,
+            inputs=[spectrogram_image, gr.State("spectrogram")],
             show_progress="hidden",
-            inputs=spectrogram_image,
         )
         regression_dl_btn.click(
-            partial(gu.download_plot, filename="regression"),
+            download_plot,
+            inputs=[species_regression_plot, gr.State("regression")],
             show_progress="hidden",
-            inputs=species_regression_plot,
         )
 
         species_dropdown.change(

@@ -49,7 +49,7 @@ def _extract_segments(
         min_conf=min_conf,
         max_conf=max_conf,
         max_segments=num_seq,
-        audio_speed=audio_speed,
+        audio_speed=gu.slider_to_value(audio_speed),
         seg_length=seq_length,
         threads=threads,
         collection_mode=collection_mode,
@@ -88,6 +88,7 @@ def build_segments_tab() -> gu.TAB_BUILDER_RESULT:
             title=loc.localize("segments-tab-info-title"),
         )
 
+        @gu.gui_runtime_error_handler
         def select_directory_to_state_and_tb(state_key):
             selection = gu.select_directory(collect_files=False, state_key=state_key)
             if selection:

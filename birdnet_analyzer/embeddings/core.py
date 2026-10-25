@@ -40,7 +40,8 @@ def embeddings(
     Args:
         audio_input (str): Path to the input audio file or directory containing audio
             files.
-        database (str): Path to the database where embeddings will be stored.
+        database (str): Path to the database where embeddings will be stored. It is
+            created if it does not exist.
         overlap (float, optional): Overlap between consecutive audio segments in
             seconds. Defaults to 0.0.
         audio_speed (float, optional): Speed factor for audio processing.
@@ -49,20 +50,20 @@ def embeddings(
             Defaults to 0.
         fmax (int, optional): Maximum frequency (in Hz) for audio analysis.
             Defaults to 15000.
-        threads (int, optional): Number of threads to use for processing. Defaults to 8.
         batch_size (int, optional): Number of audio segments to process in a single
             batch. Defaults to 1.
         file_output (str | None, optional): Path to save the output embeddings. If None,
             embeddings are not saved to a file. Defaults to None.
-        n_workers (int | None, optional): Number of worker threads to use for
-            processing. Defaults to None.
-        n_producers (int, optional): Number of producer threads to use for processing.
-            Defaults to 1.
+        n_workers (int | None, optional): Number of worker processes to use for
+            processing. Defaults to None, one per physical CPU core.
+        n_producers (int, optional): Number of producer processes to use for
+            processing. Defaults to 1.
         on_update (Callable[[AcousticProgressStats], None] | None, optional): Callback
             function to report progress updates. Defaults to None.
     Raises:
-        FileNotFoundError: If the input path or database path does not exist.
-        ValueError: If any of the parameters are invalid.
+        ValueError: If ``audio_input`` does not exist or holds no supported audio
+            file, or if the database was created with a different ``fmin``, ``fmax``,
+            ``audio_speed`` or parent folder of ``audio_input``.
     Example:
         embeddings(
             "path/to/audio",
@@ -71,7 +72,6 @@ def embeddings(
             audio_speed=1.0,
             fmin=500,
             fmax=10000,
-            threads=4,
             batch_size=2,
         )
     """
@@ -95,64 +95,67 @@ def embeddings(
     batchsize = COMMIT_BS_SIZE
     pending_since_commit = 0
     db = get_or_create_database(database)
-    _check_database_settings(
-        db, fmin=fmin, fmax=fmax, audio_speed=audio_speed, audio_root=audio_root
-    )
-    deployment_id = _ensure_deployment(db)
 
-    seg_dur = result.segment_duration_s
-    seg_overlap = result.overlap_duration_s
-    step = seg_dur - seg_overlap
+    try:
+        _check_database_settings(
+            db, fmin=fmin, fmax=fmax, audio_speed=audio_speed, audio_root=audio_root
+        )
+        deployment_id = _ensure_deployment(db)
 
-    n_inputs = result.n_inputs
-    n_segments = result.max_n_segments
-    emb_masked = result.embeddings_masked
-    input_durations = result.input_durations
+        seg_dur = result.segment_duration_s
+        seg_overlap = result.overlap_duration_s
+        step = seg_dur - seg_overlap
 
-    for i in tqdm(
-        range(n_inputs), desc="Saving embeddings to database", total=n_inputs
-    ):
-        fpath = str(pathlib.Path(result.inputs[i]).relative_to(audio_root))
-        file_dur = float(input_durations[i])
-        recording_id = _ensure_recording(db, fpath, deployment_id)
-        windows_batch = []
-        embeddings_batch = []
+        n_inputs = result.n_inputs
+        n_segments = result.max_n_segments
+        emb_masked = result.embeddings_masked
+        input_durations = result.input_durations
 
-        for j in range(n_segments):
-            # Skip masked (invalid/padded) segments
-            if emb_masked[i, j, 0]:
-                continue
+        for i in tqdm(
+            range(n_inputs), desc="Saving embeddings to database", total=n_inputs
+        ):
+            fpath = str(pathlib.Path(result.inputs[i]).relative_to(audio_root))
+            file_dur = float(input_durations[i])
+            recording_id = _ensure_recording(db, fpath, deployment_id)
+            windows_batch = []
+            embeddings_batch = []
 
-            s_start = j * step
-            s_end = s_start + seg_dur
+            for j in range(n_segments):
+                # Skip masked (invalid/padded) segments
+                if emb_masked[i, j, 0]:
+                    continue
 
-            if s_start >= file_dur:
-                continue
+                s_start = j * step
+                s_end = s_start + seg_dur
 
-            s_end = min(s_end, file_dur)
+                if s_start >= file_dur:
+                    continue
 
-            windows_batch.append(
-                {
-                    "recording_id": recording_id,
-                    "offsets": [float(s_start), float(s_end)],
-                }
-            )
-            embeddings_batch.append(result.embeddings[i, j, :])
+                s_end = min(s_end, file_dur)
 
-        if windows_batch:
-            db.insert_windows_batch(
-                windows_batch=windows_batch,
-                embeddings_batch=np.asarray(embeddings_batch),
-                handle_duplicates="skip",
-            )
-            pending_since_commit += len(windows_batch)
+                windows_batch.append(
+                    {
+                        "recording_id": recording_id,
+                        "offsets": [float(s_start), float(s_end)],
+                    }
+                )
+                embeddings_batch.append(result.embeddings[i, j, :])
 
-            if pending_since_commit >= batchsize:
-                db.commit()
-                pending_since_commit = 0
+            if windows_batch:
+                db.insert_windows_batch(
+                    windows_batch=windows_batch,
+                    embeddings_batch=np.asarray(embeddings_batch),
+                    handle_duplicates="skip",
+                )
+                pending_since_commit += len(windows_batch)
 
-    db.commit()
-    db.db.close()
+                if pending_since_commit >= batchsize:
+                    db.commit()
+                    pending_since_commit = 0
+
+        db.commit()
+    finally:
+        db.db.close()
 
     if file_output:
         create_csv_output(file_output, database)
@@ -164,30 +167,33 @@ def create_csv_output(output_path: str, database: str):
     Args:
         output_path: Path to the output file.
         database: Path to the database.
+
+    Raises:
+        FileNotFoundError: If `database` is not a folder holding a database.
     """
+    from birdnet_analyzer.search.core import open_database
 
-    db = get_or_create_database(database)
-    parent_dir = os.path.dirname(output_path)
+    with open_database(database) as db:
+        parent_dir = os.path.dirname(output_path)
 
-    if parent_dir and not os.path.exists(parent_dir):
-        os.makedirs(parent_dir)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir)
 
-    window_ids = db.match_window_ids()
+        window_ids = db.match_window_ids()
 
-    with open(output_path, "w") as f:
-        f.write("file_path,start,end,embedding\n")
+        with open(output_path, "w") as f:
+            f.write("file_path,start,end,embedding\n")
 
-        for window_id in window_ids:
-            embedding = db.get_embedding(window_id)
-            window = db.get_window(window_id)
-            recording = db.get_recording(window.recording_id)
-            start, end = window.offsets
+            for window_id in window_ids:
+                embedding = db.get_embedding(window_id)
+                window = db.get_window(window_id)
+                recording = db.get_recording(window.recording_id)
+                start, end = window.offsets
 
-            f.write(
-                f"{recording.filename},{start},{end},"
-                f'"{",".join(map(str, embedding.tolist()))}"\n'
-            )
-    db.db.close()
+                f.write(
+                    f"{recording.filename},{start},{end},"
+                    f'"{",".join(map(str, embedding.tolist()))}"\n'
+                )
 
 
 def _ensure_deployment(

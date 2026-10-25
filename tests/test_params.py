@@ -118,6 +118,7 @@ def train_values(**overrides):
         "Autotune trials": 50,
         "Autotune folds": 5,
         "Autotune repeats": 1,
+        "Autotune metric": "val_AUROC",
         "Epochs": 100,
         "Batch size": 64,
         "Learning rate": 0.0005,
@@ -162,6 +163,16 @@ def test_the_values_are_returned_exactly_as_the_analysis_ran_with_them(tmp_path)
     assert kwargs["min_conf"] == 0
 
 
+def test_an_empty_selection_is_read_back_as_one(tmp_path):
+    file = tall_file(
+        tmp_path, analysis_values(**{"Result type(s)": "", "Additional columns": ""})
+    )
+
+    kwargs = params.load_analysis_params(file)
+
+    assert (kwargs["rtype"], kwargs["additional_columns"]) == ([], [])
+
+
 def test_files_of_an_analysis_are_read_back(tmp_path):
     file = tall_file(
         tmp_path,
@@ -197,6 +208,7 @@ def test_train_params_are_read_back_as_train_arguments(tmp_path):
         "autotune_trials": 50,
         "autotune_n_splits": 5,
         "autotune_n_repeats": 1,
+        "autotune_metric": "val_AUROC",
         "epochs": 100,
         "batch_size": 64,
         "learning_rate": 0.0005,
@@ -209,7 +221,18 @@ def test_train_params_are_read_back_as_train_arguments(tmp_path):
         "focal_loss_alpha": 0.25,
         "upsampling_mode": "repeat",
         "upsampling_ratio": 0.5,
+        "birdnet": "2.4",
     }
+
+
+def test_an_unknown_model_version_is_left_out(tmp_path):
+    file = tall_file(
+        tmp_path,
+        train_values(**{"BirdNET model version": "9.9"}),
+        name="MyClassifier.birdnet.train-params.csv",
+    )
+
+    assert "birdnet" not in params.load_train_params(file)
 
 
 def test_an_old_train_params_file_is_still_understood(tmp_path):
@@ -250,6 +273,7 @@ def test_an_old_train_params_file_is_still_understood(tmp_path):
         "use_focal_loss": False,
         "focal_loss_alpha": 0.25,
         "focal_loss_gamma": 2.0,
+        "birdnet": "2.4",
     }
 
 
@@ -338,6 +362,33 @@ def test_train_params_become_cli_defaults_that_explicit_arguments_override(tmp_p
     assert overridden.epochs == 10
 
 
+def test_a_val_loss_metric_from_a_params_file_is_rejected_by_training(
+    tmp_path, monkeypatch
+):
+    from birdnet_analyzer.train import core
+    from birdnet_analyzer.train import utils as train_utils
+
+    file = tall_file(
+        tmp_path,
+        train_values(**{"Autotune metric": "val_loss"}),
+        name="MyClassifier.birdnet.train-params.csv",
+    )
+    parser = cli.train_parser()
+    cli.apply_params_file_defaults(
+        parser, params.load_train_params, argv=["--load_params", file]
+    )
+    kwargs = vars(parser.parse_args(["train_data"]))
+    kwargs.pop("load_params")
+
+    def load(*args, **kwargs):
+        pytest.fail("the training data was loaded")
+
+    monkeypatch.setattr(train_utils, "_load_training_data", load)
+
+    with pytest.raises(ValueError, match="val_loss"):
+        core.train(**kwargs)
+
+
 def test_an_unreadable_params_file_stops_the_cli(tmp_path, capsys):
     results = tmp_path / "results.csv"
     results.write_text("Start (s),End (s),Confidence\n0,3,0.8\n", encoding="utf-8")
@@ -376,3 +427,10 @@ def test_the_cli_arguments_stay_in_sync_with_the_api():
     train_args.pop("load_params")
 
     assert set(train_args) <= set(inspect.signature(train).parameters)
+
+
+def test_a_train_params_file_without_a_version_is_a_2_4_one(tmp_path):
+    values = {k: v for k, v in train_values().items() if k != "BirdNET model version"}
+    file = tall_file(tmp_path, values, name="MyClassifier.birdnet.train-params.csv")
+
+    assert params.load_train_params(file)["birdnet"] == "2.4"

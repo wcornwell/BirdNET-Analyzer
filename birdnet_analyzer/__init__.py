@@ -1,13 +1,16 @@
 import logging
 import os
-import warnings
 
-# Set TensorFlow environment variables before any other imports
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["WRAPT_DISABLE_EXTENSIONS"] = "true"
-os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false"
+# The macOS XLA-init guard must be in place before anything imports TensorFlow. The
+# cosmetic TF variables are left to utils.configure_runtime(), as upstream does, so a
+# library import overrides nothing the host has already set.
+os.environ.setdefault("TF_XLA_FLAGS", "--tf_xla_enable_xla_devices=false")
 
 from birdnet_analyzer.settings import apply_model_directory
+
+# Library convention: emit records but leave the configuration to the host
+# application. The shipped CLI and GUI configure handlers via logs.setup_logging().
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 # Before anything can import birdnet: it resolves its model directory from
 # BIRDNET_APP_DATA once, at import time.
@@ -22,9 +25,3 @@ from birdnet_analyzer.train import train  # noqa: E402
 
 __version__ = "2.4.0"
 __all__ = ["analyze", "embeddings", "search", "segments", "species", "train"]
-
-warnings.filterwarnings("ignore")
-
-# Library convention: emit records but leave the configuration to the host
-# application. The shipped CLI and GUI configure handlers via logs.setup_logging().
-logging.getLogger(__name__).addHandler(logging.NullHandler())

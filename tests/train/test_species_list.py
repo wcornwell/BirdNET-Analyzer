@@ -161,9 +161,10 @@ def _cache():
 
 def test_cache_scoping_is_inert_without_a_species_list():
     x, y, xt, yt, labels = _cache()
-    out = _scope_cache_to_species_list(x, y, xt, yt, labels, False, False)
+    out = _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "2.4")
     assert out[4] == labels
     assert out[1].shape == (5, 4)
+    assert out[7] == "2.4"
 
 
 def test_cache_non_event_mode_slices_columns_and_keeps_every_row():
@@ -171,9 +172,11 @@ def test_cache_non_event_mode_slices_columns_and_keeps_every_row():
     cfg.TRAIN_SPECIES_LIST = SITE_LIST
     cfg.UNLISTED_HANDLING = "non_event"
     x, y, xt, yt, labels = _cache()
-    x_out, y_out, _, _, labels_out, is_binary, _ = _scope_cache_to_species_list(
-        x, y, xt, yt, labels, False, False
+    x_out, y_out, _, _, labels_out, is_binary, _, version = (
+        _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "3.0")
     )
+    # the cache's backbone survives scoping: a sliced 3.0 cache still trains on 3.0
+    assert version == "3.0"
     assert labels_out == [LISTED, ALSO_LISTED]
     assert y_out.shape == (5, 2)
     assert len(x_out) == 5
@@ -186,8 +189,8 @@ def test_cache_drop_mode_removes_orphaned_rows_but_keeps_helper_rows():
     cfg.TRAIN_SPECIES_LIST = SITE_LIST
     cfg.UNLISTED_HANDLING = "drop"
     x, y, xt, yt, labels = _cache()
-    x_out, y_out, _, _, labels_out, _, _ = _scope_cache_to_species_list(
-        x, y, xt, yt, labels, False, False
+    x_out, y_out, _, _, labels_out, _, _, _ = _scope_cache_to_species_list(
+        x, y, xt, yt, labels, False, False, "2.4"
     )
     assert labels_out == [LISTED, ALSO_LISTED]
     # 2 listed rows + the pre-existing all-zero helper row; the 2 orphans are gone
@@ -201,8 +204,8 @@ def test_cache_drop_mode_removes_orphaned_rows_but_keeps_helper_rows():
 def test_cache_single_species_list_flags_binary():
     cfg.TRAIN_SPECIES_LIST = ["manorina melanocephala"]
     x, y, xt, yt, labels = _cache()
-    *_, labels_out, is_binary, is_multi_label = _scope_cache_to_species_list(
-        x, y, xt, yt, labels, False, True
+    *_, labels_out, is_binary, is_multi_label, _ = _scope_cache_to_species_list(
+        x, y, xt, yt, labels, False, True, "2.4"
     )
     assert labels_out == [LISTED]
     assert is_binary is True
@@ -213,7 +216,7 @@ def test_cache_species_list_matching_nothing_raises():
     cfg.TRAIN_SPECIES_LIST = ["Genus nonexistent".lower()]
     x, y, xt, yt, labels = _cache()
     with pytest.raises(ValueError, match="matched none"):
-        _scope_cache_to_species_list(x, y, xt, yt, labels, False, False)
+        _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "2.4")
 
 
 # --- CLI wiring ---------------------------------------------------------------------
