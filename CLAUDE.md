@@ -21,9 +21,12 @@ an editable install of this fork for the **Perch** paths and **bare-head** recog
 that install must be on `main` (whichever branch is checked out is what it gets).
 
 **Why that decoupling happened:** BirdNET 3.0 needed `birdnet==1.1.0` while this fork pinned
-`birdnet<1`. **Since the 2026-10-19 upstream sync `main` itself requires `birdnet==1.1.0`**
-(training still on the 2.4 base, gate passed — see Branch strategy), so the shared `.venv`
-is on 1.1.0 too. The `[birdnet30]` env remains the lightweight, engine-free way to score.
+`birdnet<1`. ⚠️ **As of 2026-10-26 that is STILL true of `main`:** the 3.0 syncs live only on
+branch `upstream-sync-2026-10` (worktree `../BirdNET-sync`, its own venv), which requires
+**`birdnet>=1.3.1`**. `main` and the shared `.venv` are still on `birdnet` 0.2.16 — an earlier
+version of this paragraph said they had moved to 1.1.0; they never did. They move together, only
+when the branch is landed (see Branch strategy). The `[birdnet30]` env remains the lightweight,
+engine-free way to score.
 
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
@@ -247,7 +250,8 @@ garbage-collected; its resolutions were redone from these notes and are recorded
 What the release is: BirdNET **3.0** is the default *analysis* model (ONNX), `--sensitivity` is a
 no-op on 3.0, Python 3.11+, and the trained-classifier default output is CWD-relative (harmless —
 `train_pelican.sh` passes `-o`). **Training and custom classifiers stay on the 2.4 base** in this
-release. See upstream's `docs/breaking-changes.rst`.
+release — *superseded a week later by #1007, see "BirdNET 3.0 training — merged" below.* See
+upstream's `docs/breaking-changes.rst`.
 
 **Conflicts and how they were resolved (reuse for the next sync):**
 - `.github/workflows/*` — take upstream, always. Nothing fork-specific was ever in them.
@@ -296,19 +300,60 @@ the shared `.venv` and soundscape-eval kept seeing `main` throughout):
   `extract_head_embeddings.py` (2048-d), `analyze --classifier`; soundscape-eval's Perch and
   bare-head paths against the merged engine.
 
-### BirdNET 3.0 TRAINING is coming — watch it, don't get caught by it
+### BirdNET 3.0 training — merged 2026-10-26 on `upstream-sync-2026-10` (`d8ea11a`), NOT on `main`
 
-Upstream branch **`3.0-training-support`** (5 commits, last 2026-10-17, "Fixes after review")
-adds `train --birdnet {2.4,3.0}` and bumps `birdnet>=1.3.0`; birdnet **1.3.1** on PyPI already
-loads custom classifiers trained on 3.0 (`birdnet/acoustic/models/custom_tflite.py`).
-- ⚠️ **On that branch `--birdnet` defaults to the NEWEST model (3.0).** `train_pelican.sh` now
-  pins `--birdnet 2.4` whenever the engine's `train()` takes the flag (detected by parsing
-  `train/core.py`, no TF import) and prints `Backbone:` in the banner; it errors on a non-2.4
-  request against a 2.4-only engine. **Moving pelicans to 3.0 must be explicit:**
+Upstream landed it as **#1007** (`70a9b9f`, 2026-10-19). The 18 commits `c2c71a1..8095252`
+(#1007 → #1025) were merged on top of the 10-19 sync; `birdnet` → **`>=1.3.1`**.
+
+What it gives us: `train --birdnet {3.0,2.4}`. 3.0 = **32 kHz**, 3 s, **1280-d** embeddings
+(extracted on ONNX). A 3.0 `.tflite` takes input `x` = **96000** samples and has named outputs
+`predictions` (**probabilities** — sigmoid inside the graph) + `embeddings`; a 2.4 one stays
+`input_audio` = 144000 → logits. `analyze` reads the version from the file; a 3.0 custom
+classifier always analyses at **batch 1**. **A cache trains on the backbone it was embedded with,
+whatever `--birdnet` says** (verified: a 3.0 cache given `--birdnet 2.4` records 3.0).
+- ⚠️ **`--birdnet` defaults to the NEWEST model (3.0).** `train_pelican.sh` pins `--birdnet 2.4`
+  unless told otherwise (detected by parsing `train/core.py`, no TF import) and prints
+  `Backbone:` in the banner. **Moving pelicans to 3.0 must be explicit:**
   `./train_pelican.sh run3-0-bn --birdnet 3.0`. A 3.0 head is a third embedding space —
   incomparable with any 2.4 head, centroid or misclassification `.npz`.
-- Dry-merged onto the post-sync tree it conflicts in **only `model.py` and `train/utils.py`**,
-  both import lines + adjacency to our species-list block. Cheap to take.
+- Other training-behaviour changes riding along: `--val_split` must be > 0 (validation always
+  from training data; `--test_data` only evaluates); early stopping watches `--autotune_metric`
+  (AUPRC) and restores the best epoch; `HardLabelAUC` fixes double-sigmoid AUPRC/AUROC;
+  `--label_smoothing` uses the standard formula; new `linear` upsampling mode.
+  ⚠️ `curation/npz_to_cache.py` defaults `--val_split 0.0` — rejected if it reaches `train`.
+
+**Conflicts (6) and resolutions:** `__init__.py` — git **dropped `import os` while keeping our
+`os.environ` lines** (NameError on import); now follows upstream #1023 (cosmetic TF vars live in
+`utils.configure_runtime()`, a library import must set no env var — `tests/test_runtime.py`
+asserts it) and keeps **only the macOS XLA guard, as a `setdefault`**; its duplicates in
+`config.py`/`model.py` are gone (`train_tf_first.py` sets all of them itself before TF).
+`audio.py` keep the mpeg lock + take lazy librosa. `config.py`/`core.py` keep both.
+`model.py` keep `compute_validation_metrics` + CSV block beside `HardLabelAUC` /
+`@_hiding_cuda_devices` / best-epoch restore (our manual CUDA restore dropped; `SCRIPT_DIR` →
+`cfg.SCRIPT_DIR`). `train/utils.py` our label guard on `parse_folder_labels`, both
+`labels=`/`monitor=`.
+
+**Two breakages outside the conflict regions — check for these again next sync:**
+1. `_load_from_cache` returns the backbone **version as an 8th value**; our
+   `_scope_cache_to_species_list` must pass it through, or cache + `--species_list` → TypeError.
+2. The params file is written via `by_header(TRAIN_PARAMS, …)`, which **silently drops keys not
+   in the table**. Our provenance rows (`Non-event prefixes`, `Non-event keep classes`,
+   `Species list`, `Species list entries`, `Unlisted handling`) are appended *after* it.
+
+**Validated (sync worktree venv, birdnet 1.3.1, TF 2.21):** 857 passed / 30 skipped (3.0
+export tests skip until the 3.0 pb is cached; `tests/train/test_export.py` 10/10 once it is).
+Needs upstream's new **`tests/data` submodule** (`git submodule update --init tests/data`,
+71 MB) or 2 export tests fail on missing audio. Subset smoke (5 species + Rain/Wind/Airplane/
+Siren/Noise, 5 epochs): 2.4 default/airsiren → 5/7 labels; 3.0 default/report-helpers/airsiren/
+`--unlisted drop` → 5/9/7/2; 3.0 cache + species list → 2, records 3.0. 3.0 trains ~2× slower
+end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` works on both.
+
+**Before `main` fast-forwards:** full-`reallybig` train on 2.4 (no regression vs `run0-20-bn`)
+and on 3.0 (via `--save_cache_to`), both scored in soundscape-eval — which first needs a
+raw-audio adapter for 3.0 tflites (it detects raw-audio heads by `input == 144000` and assumes
+48 kHz). Then swap the shared `.venv` (birdnet 0.2.16 → 1.3.1) in a coordinated window: it is
+shared with `curation/` and soundscape-eval. Pilot evidence that 3.0 is worth it:
+`soundscape-eval/configs/smithslake_smithslake0-4.yaml` — bn30 macro-AUPRC 0.2325 vs bn24 0.196.
 
 **Run `./check_upstream.sh` monthly (and at the start of a session here).** Read-only. It prints
 behind/ahead, a `merge-tree` conflict dry run, every incoming commit tagged RED (training / model
@@ -1135,11 +1180,14 @@ Or via CLI:
 
 ```bash
 .venv/bin/pytest tests/ --timeout=120 -q --ignore=tests/analyze/test_analyze.py
-# 593 passed, 6 skipped in ~27 s (checked 2026-10-19, post-3.0 sync; needs the `embeddings` extra)
+# 857 passed, 30 skipped in ~6–9 min (checked 2026-10-26 on upstream-sync-2026-10, post-#1007;
+# needs the `embeddings` extra and `git submodule update --init tests/data`)
 ```
 
-⚠️ **The suite runs in ~11 seconds. If it runs for minutes, it is DEADLOCKED, not slow** —
-and `--timeout=120` will *not* save you.
+⚠️ **Since #1007 the suite takes minutes legitimately** — `tests/train/test_export.py` builds and
+runs real 2.4/3.0 exports (~6 min alone). So wall time no longer tells a hang from slowness:
+**check CPU time.** A healthy run burns CPU (~245 s CPU over ~7 min); a deadlock sits near 0%
+CPU. `--timeout` will *not* save you from a real deadlock.
 
 **Never call `model.fit` (or anything that trains) from a test.** Under pytest it hits the
 macOS TF × PyArrow absl deadlock: an earlier test imports the birdnet loader → PyArrow,
