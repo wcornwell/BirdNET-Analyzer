@@ -21,12 +21,10 @@ an editable install of this fork for the **Perch** paths and **bare-head** recog
 that install must be on `main` (whichever branch is checked out is what it gets).
 
 **Why that decoupling happened:** BirdNET 3.0 needed `birdnet==1.1.0` while this fork pinned
-`birdnet<1`. ⚠️ **As of 2026-10-26 that is STILL true of `main`:** the 3.0 syncs live only on
-branch `upstream-sync-2026-10` (worktree `../BirdNET-sync`, its own venv), which requires
-**`birdnet>=1.3.1`**. `main` and the shared `.venv` are still on `birdnet` 0.2.16 — an earlier
-version of this paragraph said they had moved to 1.1.0; they never did. They move together, only
-when the branch is landed (see Branch strategy). The `[birdnet30]` env remains the lightweight,
-engine-free way to score.
+`birdnet<1`. **That ended 2026-10-26:** `main` fast-forwarded to the 3.0 sync
+(`upstream-sync-2026-10`, tip `3964f89`) and the shared `.venv` was rebuilt on
+**`birdnet` 1.3.1** / TF 2.21 (old venv kept as `.venv-pre1007` for rollback). The
+`[birdnet30]` env remains the lightweight, engine-free way to score.
 
 ⚠️ `labeled_soundscape/` is **evaluation data that should not be in this repo** — pending a
 move to `${call_library}/testing_soundscapes/smithslake/`. See ECOACOUSTICS.md.
@@ -300,7 +298,7 @@ the shared `.venv` and soundscape-eval kept seeing `main` throughout):
   `extract_head_embeddings.py` (2048-d), `analyze --classifier`; soundscape-eval's Perch and
   bare-head paths against the merged engine.
 
-### BirdNET 3.0 training — merged 2026-10-26 on `upstream-sync-2026-10` (`d8ea11a`), NOT on `main`
+### BirdNET 3.0 training — merged 2026-10-26 (`d8ea11a`), on `main` since 2026-10-26
 
 Upstream landed it as **#1007** (`70a9b9f`, 2026-10-19). The 18 commits `c2c71a1..8095252`
 (#1007 → #1025) were merged on top of the 10-19 sync; `birdnet` → **`>=1.3.1`**.
@@ -320,7 +318,8 @@ whatever `--birdnet` says** (verified: a 3.0 cache given `--birdnet 2.4` records
   from training data; `--test_data` only evaluates); early stopping watches `--autotune_metric`
   (AUPRC) and restores the best epoch; `HardLabelAUC` fixes double-sigmoid AUPRC/AUROC;
   `--label_smoothing` uses the standard formula; new `linear` upsampling mode.
-  ⚠️ `curation/npz_to_cache.py` defaults `--val_split 0.0` — rejected if it reaches `train`.
+  (`curation/npz_to_cache.py`'s `--val_split 0.0` is local to that script — it builds its own
+  `x_test`/`y_test` and never reaches `train` — so it is unaffected.)
 
 **Conflicts (6) and resolutions:** `__init__.py` — git **dropped `import os` while keeping our
 `os.environ` lines** (NameError on import); now follows upstream #1023 (cosmetic TF vars live in
@@ -348,12 +347,35 @@ Siren/Noise, 5 epochs): 2.4 default/airsiren → 5/7 labels; 3.0 default/report-
 `--unlisted drop` → 5/9/7/2; 3.0 cache + species list → 2, records 3.0. 3.0 trains ~2× slower
 end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` works on both.
 
-**Before `main` fast-forwards:** full-`reallybig` train on 2.4 (no regression vs `run0-20-bn`)
-and on 3.0 (via `--save_cache_to`), both scored in soundscape-eval — which first needs a
-raw-audio adapter for 3.0 tflites (it detects raw-audio heads by `input == 144000` and assumes
-48 kHz). Then swap the shared `.venv` (birdnet 0.2.16 → 1.3.1) in a coordinated window: it is
-shared with `curation/` and soundscape-eval. Pilot evidence that 3.0 is worth it:
-`soundscape-eval/configs/smithslake_smithslake0-4.yaml` — bn30 macro-AUPRC 0.2325 vs bn24 0.196.
+**Full-`reallybig` gate — PASSED 2026-10-26, then landed.** `sync1007-bn24` and `sync1007-bn30`
+(same recipe, `train_pelican.sh` defaults; 3.0 via `--save_cache_to`, cache in
+`training_runs/out/sync1007/cache30.npz`, 689 MB) scored with `run0-20-bn` in soundscape-eval
+(`configs/{smithslake,fowlers}_sync1007.yaml`):
+
+| model | Smiths Lake AUPRC / bestF1 / R@1FP/hr | Fowlers Gap AUPRC / bestF1 / R@1FP/hr |
+|---|---|---|
+| `sync1007-bn30` (3.0) | **0.230** / **0.283** / 0.061 | **0.263** / **0.329** / 0.118 |
+| `sync1007-bn24` (2.4) | 0.182 / 0.238 / 0.141 | 0.223 / 0.281 / 0.102 |
+| `run0-20-bn` (2.4) | 0.193 / 0.249 / 0.172 | 0.215 / 0.269 / 0.179 |
+
+- **2.4 no regression:** bn24 vs run0-20-bn per-species AUPRC (>0.02) is 1 better / 5 worse on
+  Smiths Lake but 8 / 4 on Fowlers, median Δ ≈ 0 on both — sign flips ⇒ seed noise.
+- **3.0 wins ranking on both soundscapes**, broadly: vs bn24 11/3 (Smiths) and 17/5 (Fowlers)
+  species better/worse. **But not at the fixed operating point:** in-sample recall@0.5 is 0.78
+  vs 0.93, and R@1FP/hr trails run0-20-bn on both soundscapes (each budget carried by one leak
+  species — indicative only). ⇒ 3.0's scores need calibrating; **`train_pelican.sh` stays on
+  2.4 by default** until that is decided.
+- 3.0 extraction of full `reallybig` took ~46 min here (not the 2–3 h the pilot suggested);
+  scoring a 3.0 tflite at batch 1 ran Fowlers' 400 min in ~7 min.
+
+**Shared `.venv` swap — DONE 2026-10-26.** `.venv` → `.venv-pre1007` (birdnet 0.2.16, TF 2.20);
+new `.venv` = `pip install -c <sync venv freeze> -e ".[train,tests,dev,embeddings]"`, i.e. pinned
+to the versions the gate ran on. ⚠️ **Unconstrained, pip resolves librosa 1.0 / pandas 3.1 /
+python-dateutil 3.0**, which the gate never ran — rebuild with constraints or re-validate.
+`tests/data` submodule initialised in this checkout. Suite 863 passed / 24 skipped (same as the
+sync venv), ruff clean, curation scripts and soundscape-eval (checkpoints via
+`SOUNDSCAPE_EVAL_BIRDNET_CHECKPOINTS`) unaffected — a cached re-compare was byte-identical.
+Delete `.venv-pre1007` once nothing has needed it for a while.
 
 **Run `./check_upstream.sh` monthly (and at the start of a session here).** Read-only. It prints
 behind/ahead, a `merge-tree` conflict dry run, every incoming commit tagged RED (training / model
@@ -600,11 +622,8 @@ Install deps:
 .venv/bin/pip install -e ".[train,embeddings,tests]"
 ```
 
-✅ **RESOLVED 2026-08-31 — the extras are back.** 212 packages; `.venv/bin/pytest` and
-`.venv/bin/ruff` (0.14.0) both exist, and the suite runs **530 passed / 2 skipped**. The
-2026-08-09 note that this venv had lost `[tests]`/`[dev]` (80 packages, no pytest, no ruff)
-no longer holds, so **"the parked sync is unvalidated because the venv can't test" is no
-longer a reason** — it is parked on its merits alone.
+**Rebuilt 2026-10-26 for the 3.0 landing** (birdnet 1.3.1, TF 2.21, ruff 0.15.10, `embeddings`
+extra included) — see "Shared `.venv` swap" under Branch strategy for the constrained install.
 
 Still true, and still the reason to check before changing it: this venv is shared
 infrastructure (see the header warning), sibling repos invoke it by absolute path. Reinstall
@@ -615,10 +634,7 @@ shape if ever needed:
 ```
 
 Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships in the
-`dev` extra; run `.venv/bin/ruff check <files>` before committing. ⚠️ The `pyproject.toml`
-pin is **`0.15.10`** as of the 2026-07-23 upstream sync; the last version actually installed in
-`.venv` was **`0.14.0`** (clean under it), but it is currently absent altogether — a reinstall
-will now pull `0.15.10`, so expect first-run lint differences.
+`dev` extra (`0.15.10`); run `.venv/bin/ruff check <files>` before committing.
 
 ---
 
@@ -1180,7 +1196,7 @@ Or via CLI:
 
 ```bash
 .venv/bin/pytest tests/ --timeout=120 -q --ignore=tests/analyze/test_analyze.py
-# 857 passed, 30 skipped in ~6–9 min (checked 2026-10-26 on upstream-sync-2026-10, post-#1007;
+# 863 passed, 24 skipped in ~6 min (checked 2026-10-26 on main after the 3.0 landing;
 # needs the `embeddings` extra and `git submodule update --init tests/data`)
 ```
 
