@@ -16,8 +16,13 @@ against the other:
     extract_head_embeddings.py  2048-d  custom head       one recognizer's own space
 
 The head layer is still present in the exported .tflite (input audio -> backbone ->
-GLOBAL_AVG_POOL 1024 -> dense_1 relu 2048 -> 430 classes), so this reads it straight
-out of the graph rather than depending on a core API. `experimental_preserve_all_tensors`
+embedding -> dense_1 relu 2048 -> classes), so this reads it straight out of the
+graph rather than depending on a core API. Works on both backbones; the input width
+says which, and fixes the sample rate the audio must be decoded at:
+
+    2.4  `input_audio` 144000 @ 48 kHz, 1024-d embedding, one output
+    3.0  `x` 96000 @ 32 kHz, 1280-d embedding, outputs `predictions` + `embeddings`
+         (`train --birdnet 3.0`) `experimental_preserve_all_tensors`
 is what keeps the intermediate readable; without it TFLite reuses the buffer.
 
 Audio handling is deliberately identical to the pre-refactor extractor
@@ -47,12 +52,24 @@ from birdnet_analyzer import audio  # noqa: E402
 
 AUDIO_EXTS = (".wav", ".flac", ".mp3", ".ogg")
 BIRDNET_SIG_LENGTH = 3.0
+# Raw-audio input width -> (backbone, sample rate). Both backbones use 3 s windows.
+RAW_AUDIO_INPUTS = {144000: ("2.4", 48000), 96000: ("3.0", 32000)}
 
 
 def short_name(species_dir):
     """Extract common name from 'Genus species_Common Name' directory name."""
     parts = species_dir.split("_", 1)
     return parts[1] if len(parts) > 1 else species_dir
+
+
+def class_output(interpreter):
+    """The class-score output. A 3.0 export also outputs `embeddings`, and the
+    output order is not guaranteed, so take `predictions` by its signature name.
+    """
+    outs = interpreter.get_signature_runner().get_output_details()
+    if "predictions" in outs:
+        return outs["predictions"]
+    return interpreter.get_output_details()[0]
 
 
 def find_head_tensor(interpreter):
@@ -63,8 +80,8 @@ def find_head_tensor(interpreter):
     read the wrong tensor if a recognizer were exported with different hidden
     units or an extra layer.
     """
-    out_idx = interpreter.get_output_details()[0]["index"]
-    n_classes = interpreter.get_output_details()[0]["shape"][-1]
+    out = class_output(interpreter)
+    out_idx, n_classes = out["index"], out["shape"][-1]
     cands = [
         d for d in interpreter.get_tensor_details()
         if d["index"] < out_idx
@@ -87,7 +104,10 @@ def main():
     p.add_argument("--model", required=True, help="Custom classifier .tflite. Selects the embedding space.")
     p.add_argument("--input", required=True, help="Directory containing species folders.")
     p.add_argument("--output", required=True, help="Base name for output files (no extension).")
-    p.add_argument("--sample_rate", type=int, default=48000)
+    p.add_argument(
+        "--sample_rate", type=int, default=None,
+        help="Override the backbone's rate (48 kHz on 2.4, 32 kHz on 3.0).",
+    )
     args = p.parse_args()
 
     import tensorflow as tf
@@ -98,6 +118,13 @@ def main():
     interpreter.allocate_tensors()
     in_detail = interpreter.get_input_details()[0]
     n_samples = int(in_detail["shape"][-1])
+    if n_samples not in RAW_AUDIO_INPUTS:
+        raise SystemExit(
+            f"Input width {n_samples} is not raw audio for a known backbone "
+            f"({sorted(RAW_AUDIO_INPUTS)}); is this a bare head?"
+        )
+    backbone, sample_rate = RAW_AUDIO_INPUTS[n_samples]
+    sample_rate = args.sample_rate or sample_rate
     head = find_head_tensor(interpreter)
     head_idx, emb_dim = head["index"], int(head["shape"][-1])
 
@@ -107,7 +134,7 @@ def main():
         if os.path.isdir(os.path.join(base_dir, d)) and not d.startswith(".")
     )
 
-    print(f"Model:  {args.model}")
+    print(f"Model:  {args.model}  (BirdNET {backbone}, {sample_rate} Hz)")
     print(f"Layer:  {head['name'][:70]}  ({emb_dim}-d, tensor {head_idx})")
     print(f"Input:  {base_dir}")
     print(f"Found {len(species_dirs)} species directories\n")
@@ -123,7 +150,7 @@ def main():
         for fname in wav_files:
             try:
                 sig, rate = audio.open_audio_file(
-                    os.path.join(cls_dir, fname), sample_rate=args.sample_rate
+                    os.path.join(cls_dir, fname), sample_rate=sample_rate
                 )
                 chunk = audio.crop_center(sig, rate, BIRDNET_SIG_LENGTH)
                 x = np.zeros(n_samples, dtype="float32")
@@ -163,6 +190,7 @@ def main():
         "model_path": np.array([args.model]),
         "input_dir": np.array([base_dir]),
         "embedding_space": np.array(["custom_head_penultimate"]),
+        "backbone_version": np.array([backbone]),
     }
     for sp in active_species:
         save_dict[f"emb_{sp}"] = all_embeddings[sp]

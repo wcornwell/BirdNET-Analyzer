@@ -80,7 +80,10 @@ def main():
     # Load the backbone once; embedding geometry comes from the model itself, not
     # from config globals. One encode_session is reused across every species folder
     # (opening a session per folder would pay its worker-pool setup hundreds of times).
-    model = birdnet.load("acoustic", args.version, "tf")
+    # 3.0 on ONNX, as the trainer embeds it (model_utils._load_acoustic_for_embeddings);
+    # its tf backend is a separate download. 2.4 has only tf.
+    backend = "onnx" if args.version == "3.0" else "tf"
+    model = birdnet.load("acoustic", args.version, backend)
     sample_rate = model.get_sample_rate()
     sig_length = model.get_segment_size_s()
 
