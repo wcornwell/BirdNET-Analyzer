@@ -350,20 +350,21 @@ end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` wor
 **Full-`reallybig` gate — PASSED 2026-10-26, then landed.** `sync1007-bn24` and `sync1007-bn30`
 (same recipe, `train_pelican.sh` defaults; 3.0 via `--save_cache_to`, cache in
 `training_runs/out/sync1007/cache30.npz`, 689 MB) scored with `run0-20-bn` in soundscape-eval
-(`configs/{smithslake,fowlers}_sync1007.yaml`):
+(`configs/{smithslake,fowlers,sarah_soundscapes}_sync1007.yaml`). AUPRC / bestF1 / R@1FP/hr:
 
-| model | Smiths Lake AUPRC / bestF1 / R@1FP/hr | Fowlers Gap AUPRC / bestF1 / R@1FP/hr |
-|---|---|---|
-| `sync1007-bn30` (3.0) | **0.230** / **0.283** / 0.061 | **0.263** / **0.329** / 0.118 |
-| `sync1007-bn24` (2.4) | 0.182 / 0.238 / 0.141 | 0.223 / 0.281 / 0.102 |
-| `run0-20-bn` (2.4) | 0.193 / 0.249 / 0.172 | 0.215 / 0.269 / 0.179 |
+| model | Smiths Lake (25 spp, 60 min) | Fowlers Gap (38 spp, 400 min) | Sarah's (51 spp, 1720 min) |
+|---|---|---|---|
+| `sync1007-bn30` (3.0) | **0.230** / **0.283** / 0.061 | **0.263** / **0.329** / 0.118 | **0.250** / **0.312** / **0.276** |
+| `sync1007-bn24` (2.4) | 0.182 / 0.238 / 0.141 | 0.223 / 0.281 / 0.102 | 0.210 / 0.261 / 0.184 |
+| `run0-20-bn` (2.4) | 0.193 / 0.249 / 0.172 | 0.215 / 0.269 / 0.179 | 0.205 / 0.257 / 0.250 |
 
 - **2.4 no regression:** bn24 vs run0-20-bn per-species AUPRC (>0.02) is 1 better / 5 worse on
-  Smiths Lake but 8 / 4 on Fowlers, median Δ ≈ 0 on both — sign flips ⇒ seed noise.
-- **3.0 wins ranking on both soundscapes**, broadly: vs bn24 11/3 (Smiths) and 17/5 (Fowlers)
-  species better/worse. **But not at the fixed operating point:** in-sample recall@0.5 is 0.78
-  vs 0.93, and R@1FP/hr trails run0-20-bn on both soundscapes (each budget carried by one leak
-  species — indicative only). ⇒ 3.0's scores need calibrating; **`train_pelican.sh` stays on
+  Smiths Lake, 8 / 4 on Fowlers, 11 / 3 on Sarah's, median Δ ≈ 0 on all three — seed noise.
+- **3.0 wins ranking on all three soundscapes**, broadly: vs bn24 11/3 (Smiths), 17/5 (Fowlers),
+  26/9 (Sarah's) species better/worse. **The operating point is mixed:** in-sample recall@0.5 is
+  0.78 vs 0.93, and R@1FP/hr trails run0-20-bn on Smiths Lake and Fowlers (each budget carried by
+  one leak species — indicative only) but leads on Sarah's, the largest set and the only one
+  where no single species carries the budget. ⇒ 3.0's scores need calibrating; **`train_pelican.sh` stays on
   2.4 by default** until that is decided.
 - 3.0 extraction of full `reallybig` took ~46 min here (not the 2–3 h the pilot suggested);
   scoring a 3.0 tflite at batch 1 ran Fowlers' 400 min in ~7 min.
