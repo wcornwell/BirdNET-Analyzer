@@ -35,13 +35,14 @@
 #
 # --nonevent-helpers is still accepted as a no-op (it is now the default).
 #
-# BACKBONE: pinned to BirdNET 2.4 unless you pass --birdnet. Upstream's 3.0 training
-# work (branch 3.0-training-support) makes `train --birdnet` default to the NEWEST
-# model, so without this pin a plain `./train_pelican.sh <name>` would silently switch
-# to 3.0 embeddings the day that lands -- a different embedding space, and a head
-# incomparable with every earlier pelican. Moving to 3.0 has to be a choice:
-#   ./train_pelican.sh pelican3-0 --birdnet 3.0
-# On an engine without --birdnet (2.4-only training) the flag is checked, not passed.
+# BACKBONE: BirdNET 3.0 by default (since 2026-10-28), always passed explicitly so the
+# choice is ours, not whatever `train --birdnet` defaults to upstream. 3.0 beat 2.4 on all
+# three labelled soundscapes (sync1007-bn30 vs -bn24; see CLAUDE.md, "Full-reallybig gate").
+# A 3.0 head is a different embedding space from every run0-N pelican (all 2.4), so start
+# a new run series (run1-0, ...). For a 2.4 head -- e.g. to extend a 2.4 series:
+#   ./train_pelican.sh run0-21-bn --birdnet 2.4
+# On an engine without --birdnet (2.4-only training) the default falls back to 2.4, and an
+# explicit --birdnet 3.0 is refused.
 #
 # For other splits, pass --non_event_prefixes / --keep_as_class directly instead;
 # an explicit --non_event_prefixes overrides the baked-in default.
@@ -75,7 +76,8 @@ SPECIES_LIST=""
 UNLISTED="non_event"
 EXPECT_SPECIES_LIST=false
 EXPECT_UNLISTED=false
-BACKBONE="2.4"
+BACKBONE="3.0"
+BACKBONE_EXPLICIT=false
 EXPECT_BACKBONE=false
 EXTRA_ARGS=()
 for arg in "$@"; do
@@ -94,7 +96,7 @@ for arg in "$@"; do
         EXTRA_ARGS+=(--unlisted "$arg"); continue
     fi
     if $EXPECT_BACKBONE; then
-        BACKBONE="$arg"; EXPECT_BACKBONE=false; continue
+        BACKBONE="$arg"; BACKBONE_EXPLICIT=true; EXPECT_BACKBONE=false; continue
     fi
     case "$arg" in
         --birdnet)
@@ -161,6 +163,8 @@ sys.exit(0 if "birdnet" in names else 1)
 PY
 then
     EXTRA_ARGS+=(--birdnet "$BACKBONE")
+elif ! $BACKBONE_EXPLICIT; then
+    BACKBONE="2.4"   # a 2.4-only engine: the default cannot apply
 elif [[ "$BACKBONE" != "2.4" ]]; then
     echo "Error: this engine trains on BirdNET 2.4 only (no --birdnet in train); got --birdnet $BACKBONE." >&2
     exit 1

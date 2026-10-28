@@ -309,11 +309,12 @@ What it gives us: `train --birdnet {3.0,2.4}`. 3.0 = **32 kHz**, 3 s, **1280-d**
 `input_audio` = 144000 → logits. `analyze` reads the version from the file; a 3.0 custom
 classifier always analyses at **batch 1**. **A cache trains on the backbone it was embedded with,
 whatever `--birdnet` says** (verified: a 3.0 cache given `--birdnet 2.4` records 3.0).
-- ⚠️ **`--birdnet` defaults to the NEWEST model (3.0).** `train_pelican.sh` pins `--birdnet 2.4`
-  unless told otherwise (detected by parsing `train/core.py`, no TF import) and prints
-  `Backbone:` in the banner. **Moving pelicans to 3.0 must be explicit:**
-  `./train_pelican.sh run3-0-bn --birdnet 3.0`. A 3.0 head is a third embedding space —
-  incomparable with any 2.4 head, centroid or misclassification `.npz`.
+- ⚠️ **`--birdnet` defaults to the NEWEST model upstream.** `train_pelican.sh` always passes
+  it explicitly — **3.0 by default since 2026-10-28** (was 2.4), `--birdnet 2.4` to override —
+  and prints `Backbone:` in the banner (support detected by parsing `train/core.py`, no TF
+  import; a 2.4-only engine falls back to 2.4). A 3.0 head is a third embedding space —
+  incomparable with any 2.4 head, centroid or misclassification `.npz` — so 3.0 runs start a
+  new series, `run1-0` (`training_runs/CLAUDE.md`, "Run naming").
 - Other training-behaviour changes riding along: `--val_split` must be > 0 (validation always
   from training data; `--test_data` only evaluates); early stopping watches `--autotune_metric`
   (AUPRC) and restores the best epoch; `HardLabelAUC` fixes double-sigmoid AUPRC/AUROC;
@@ -364,8 +365,8 @@ end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` wor
   26/9 (Sarah's) species better/worse. **The operating point is mixed:** in-sample recall@0.5 is
   0.78 vs 0.93, and R@1FP/hr trails run0-20-bn on Smiths Lake and Fowlers (each budget carried by
   one leak species — indicative only) but leads on Sarah's, the largest set and the only one
-  where no single species carries the budget. **`train_pelican.sh` stays on 2.4 by default**
-  until the switch is made explicitly (see the calibration check below).
+  where no single species carries the budget. **`train_pelican.sh` switched to 3.0 by
+  default on 2026-10-28**, after the calibration check below.
 - **Calibration check (2026-10-28) — no global offset; the R@1FP/hr losses are not a reason
   to stay on 2.4.** Recall re-computed at 0.5/1/2/4 FP/hr and with the top 1–2 leak species
   silenced (each model's threshold is set by its own leak, so a uniform score shift cannot
@@ -680,9 +681,15 @@ Linting: the repo enforces clean `ruff` (CI fixed all violations). `ruff` ships 
 Training uses the **birdnet-library inline loader** (as of the 2026-07-22 swap) — embeddings extracted inline (~40 clips/sec via upstream #939), no cache step needed. On macOS it must run via `train_tf_first.py` (TF-first init; `train_pelican.sh` already does this).
 
 ```bash
-./train_pelican.sh pelican0-10
-./train_pelican.sh pelican0-10 --epochs 100   # override any flag
+./train_pelican.sh run1-0-bn                  # BirdNET 3.0 backbone (the default since 2026-10-28)
+./train_pelican.sh run1-0-bn --epochs 100     # override any flag
+./train_pelican.sh run0-21-bn --birdnet 2.4   # a 2.4 head, e.g. to extend the run0-N series
 ```
+
+**Backbone:** 3.0 by default (32 kHz, 1280-d embeddings, a `.tflite` that outputs
+probabilities); `--birdnet 2.4` for the old one. For repeated 3.0 runs on the same library,
+extract once with `--save_cache_to <file>.npz` (~46 min for full `reallybig`) and pass that
+cache as the input of later runs — a cache trains on the backbone it was embedded with.
 
 Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 
