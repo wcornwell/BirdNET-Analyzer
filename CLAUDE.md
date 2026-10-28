@@ -364,8 +364,37 @@ end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` wor
   26/9 (Sarah's) species better/worse. **The operating point is mixed:** in-sample recall@0.5 is
   0.78 vs 0.93, and R@1FP/hr trails run0-20-bn on Smiths Lake and Fowlers (each budget carried by
   one leak species — indicative only) but leads on Sarah's, the largest set and the only one
-  where no single species carries the budget. ⇒ 3.0's scores need calibrating; **`train_pelican.sh` stays on
-  2.4 by default** until that is decided.
+  where no single species carries the budget. **`train_pelican.sh` stays on 2.4 by default**
+  until the switch is made explicitly (see the calibration check below).
+- **Calibration check (2026-10-28) — no global offset; the R@1FP/hr losses are not a reason
+  to stay on 2.4.** Recall re-computed at 0.5/1/2/4 FP/hr and with the top 1–2 leak species
+  silenced (each model's threshold is set by its own leak, so a uniform score shift cannot
+  matter — only the *shape* of the leak tail can):
+
+  | soundscape | model | R@0.5 / 1 / 2 / 4 FP/hr | R@1, top-2 leak silenced |
+  |---|---|---|---|
+  | Smiths Lake (1.0 h) | 3.0 | 0.061 / 0.061 / 0.104 / 0.190 | 0.061 |
+  | | run0-20-bn | 0.172 / 0.172 / 0.172 / 0.190 | 0.190 |
+  | Fowlers (6.6 h) | 3.0 | 0.096 / 0.118 / 0.169 / **0.213** | 0.134 |
+  | | sync1007-bn24 | 0.086 / 0.102 / 0.118 / 0.126 | 0.179 |
+  | | run0-20-bn | 0.179 / 0.179 / 0.188 / 0.192 | 0.208 |
+  | Sarah's (28.4 h) | 3.0 | **0.248 / 0.276 / 0.317 / 0.365** | **0.315** |
+  | | sync1007-bn24 | 0.177 / 0.184 / 0.192 / 0.210 | 0.280 |
+  | | run0-20-bn | 0.229 / 0.250 / 0.272 / 0.292 | 0.290 |
+
+  - **Smiths Lake is one hour, so a 1/hr budget is ONE false alarm** (3.0's was a single
+    Large-billed Scrubwren). At 4/hr 3.0 and run0-20-bn tie. Don't read operating-point
+    metrics off it.
+  - **Fowlers is a real but small strict-budget loss with a different cause per backbone.**
+    2.4's leak is almost all **Australian Bustard** (22–26 of its runs at 4/hr; silencing it
+    lifts bn24 0.10 → 0.18). 3.0 has no Bustard problem; its leak is spread over ~10 plausible
+    confusions (flies, field cricket, sheep), so silencing doesn't help — a broader high tail,
+    which costs it at ≤1/hr and wins from ~2–4/hr.
+  - **3.0 fixes the Australian Bustard leak** (bn24: 110 runs on Sarah's at 4/hr; absent from
+    3.0's top three). **Thick-billed Grasswren and Mottled Bush Cricket leak in every model** —
+    library-curation targets regardless of backbone.
+  - Script: re-runnable from soundscape-eval with `compare.build_comparison` +
+    `metrics.matched_threshold`/`binned` on the three `*_sync1007` manifests.
 - 3.0 extraction of full `reallybig` took ~46 min here (not the 2–3 h the pilot suggested);
   scoring a 3.0 tflite at batch 1 ran Fowlers' 400 min in ~7 min.
 
@@ -373,6 +402,13 @@ end-to-end than 2.4 on the subset (≈160 s vs 77 s). `analyze --classifier` wor
 new `.venv` = `pip install -c <sync venv freeze> -e ".[train,tests,dev,embeddings]"`, i.e. pinned
 to the versions the gate ran on. ⚠️ **Unconstrained, pip resolves librosa 1.0 / pandas 3.1 /
 python-dateutil 3.0**, which the gate never ran — rebuild with constraints or re-validate.
+⚠️ **The pyproject extras are not the whole venv.** It also carries editable
+**`../soundscape-eval`** (install `--no-deps`, or pip swaps in score-ensemble from GitHub) and
+**`../score-ensemble`**, plus **`resampy==0.4.3`** (soundscape-eval's and a2o-bats' `kaiser_fast`
+resampling). `run_dual.sh`'s compare step and `a2o-bats/compete/score_clips.py` run soundscape-eval
+from THIS venv. The 2026-10-26 rebuild missed all three until 10-28; restored, and a cached
+re-compare under this venv matched the soundscape-eval venv's summaries byte for byte. Before
+deleting `.venv-pre1007`, diff its `site-packages/*.dist-info` names against the new venv.
 `tests/data` submodule initialised in this checkout. Suite 863 passed / 24 skipped (same as the
 sync venv), ruff clean, curation scripts and soundscape-eval (checkpoints via
 `SOUNDSCAPE_EVAL_BIRDNET_CHECKPOINTS`) unaffected — a cached re-compare was byte-identical.
