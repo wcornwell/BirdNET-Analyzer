@@ -703,7 +703,7 @@ Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 | upsampling_ratio | 0.4 |
 | focal_loss | true |
 | focal_loss_alpha | 0.25 |
-| focal_loss_gamma | 3.0 |
+| focal_loss_gamma | 2.0 (was 3.0; the Smiths Lake gamma sweep — see the comment in `train_pelican.sh`) |
 | epochs | 50 |
 
 Override any parameter by appending flags: `./train_pelican.sh pelican0-11 --epochs 100`

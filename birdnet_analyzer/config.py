@@ -17,7 +17,11 @@ def _newest_version(versions: tuple[str, ...]) -> str:
 
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
-RANDOM_SEED: int = 42
+# Fork: overridable so a recipe can be re-run on a different train/val split and
+# upsampling draw (train_pelican.sh --seed). Read at import because model.py and
+# train/utils.py import the value, not the module. Keras weight init is unseeded
+# regardless, so a fixed seed fixes the split, not the whole run.
+RANDOM_SEED: int = int(os.environ.get("BIRDNET_RANDOM_SEED", "42"))
 
 # Default model versions, derived from what the installed birdnet ships so they track
 # the newest. Geo is never a choice: its newest version always replaces the older ones.

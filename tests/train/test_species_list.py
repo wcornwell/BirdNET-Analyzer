@@ -3,7 +3,7 @@
 Covers the two decisions a species list drives: which classes get an output neuron
 (train.utils.is_selected_species) and what happens to the ones it leaves out --
 either all-zero hard negatives via is_non_event ("non_event") or exclusion ("drop").
-Also covers _scope_cache_to_species_list, the path that turns one shared library
+Also covers _scope_cache, the path that turns one shared library
 cache into a per-site recognizer without re-extracting embeddings.
 
 The lists live in config and are set at train time, so each test sets and restores
@@ -19,7 +19,7 @@ import birdnet_analyzer.config as cfg
 from birdnet_analyzer.cli import train_parser
 from birdnet_analyzer.train.core import train
 from birdnet_analyzer.train.utils import (
-    _scope_cache_to_species_list,
+    _scope_cache,
     is_non_event,
     is_selected_species,
     load_species_list,
@@ -161,7 +161,7 @@ def _cache():
 
 def test_cache_scoping_is_inert_without_a_species_list():
     x, y, xt, yt, labels = _cache()
-    out = _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "2.4")
+    out = _scope_cache(x, y, xt, yt, labels, False, False, "2.4")
     assert out[4] == labels
     assert out[1].shape == (5, 4)
     assert out[7] == "2.4"
@@ -172,8 +172,8 @@ def test_cache_non_event_mode_slices_columns_and_keeps_every_row():
     cfg.TRAIN_SPECIES_LIST = SITE_LIST
     cfg.UNLISTED_HANDLING = "non_event"
     x, y, xt, yt, labels = _cache()
-    x_out, y_out, _, _, labels_out, is_binary, _, version = (
-        _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "3.0")
+    x_out, y_out, _, _, labels_out, is_binary, _, version = _scope_cache(
+        x, y, xt, yt, labels, False, False, "3.0"
     )
     # the cache's backbone survives scoping: a sliced 3.0 cache still trains on 3.0
     assert version == "3.0"
@@ -189,7 +189,7 @@ def test_cache_drop_mode_removes_orphaned_rows_but_keeps_helper_rows():
     cfg.TRAIN_SPECIES_LIST = SITE_LIST
     cfg.UNLISTED_HANDLING = "drop"
     x, y, xt, yt, labels = _cache()
-    x_out, y_out, _, _, labels_out, _, _, _ = _scope_cache_to_species_list(
+    x_out, y_out, _, _, labels_out, _, _, _ = _scope_cache(
         x, y, xt, yt, labels, False, False, "2.4"
     )
     assert labels_out == [LISTED, ALSO_LISTED]
@@ -204,7 +204,7 @@ def test_cache_drop_mode_removes_orphaned_rows_but_keeps_helper_rows():
 def test_cache_single_species_list_flags_binary():
     cfg.TRAIN_SPECIES_LIST = ["manorina melanocephala"]
     x, y, xt, yt, labels = _cache()
-    *_, labels_out, is_binary, is_multi_label, _ = _scope_cache_to_species_list(
+    *_, labels_out, is_binary, is_multi_label, _ = _scope_cache(
         x, y, xt, yt, labels, False, True, "2.4"
     )
     assert labels_out == [LISTED]
@@ -216,7 +216,71 @@ def test_cache_species_list_matching_nothing_raises():
     cfg.TRAIN_SPECIES_LIST = ["Genus nonexistent".lower()]
     x, y, xt, yt, labels = _cache()
     with pytest.raises(ValueError, match="matched none"):
-        _scope_cache_to_species_list(x, y, xt, yt, labels, False, False, "2.4")
+        _scope_cache(x, y, xt, yt, labels, False, False, "2.4")
+
+
+def _full_cache():
+    """A cache extracted with helpers as positive columns (--report-helpers)."""
+    labels = [LISTED, UNLISTED, "Environment_Rain", "Homo sapiens_Airplane"]
+    y = np.array(
+        [
+            [1, 0, 0, 0],  # listed species
+            [0, 1, 0, 0],  # unlisted species
+            [0, 0, 1, 0],  # rain
+            [0, 0, 0, 1],  # airplane
+            [1, 0, 1, 0],  # listed species in the rain
+        ],
+        dtype="float32",
+    )
+    x = np.arange(5 * 3, dtype="float32").reshape(5, 3)
+    return x, y, np.array([]), np.array([]), labels
+
+
+def test_full_cache_helpers_become_non_events():
+    """Helper columns go, their rows stay as all-zero hard negatives."""
+    x, y, xt, yt, labels = _full_cache()
+    x_out, y_out, _, _, labels_out, *_ = _scope_cache(
+        x, y, xt, yt, labels, False, True, "3.0"
+    )
+    assert labels_out == [LISTED, UNLISTED]
+    assert len(x_out) == 5
+    assert y_out.any(axis=1).tolist() == [True, True, False, False, True]
+
+
+def test_full_cache_keep_as_class_survives():
+    cfg.NON_EVENT_KEEP_CLASSES = ["Homo sapiens_Airplane"]
+    *_, labels_out, _, _, _ = _scope_cache(*_full_cache(), False, True, "3.0")
+    assert labels_out == [LISTED, UNLISTED, "Homo sapiens_Airplane"]
+
+
+def test_full_cache_is_inert_with_helpers_reported():
+    """--report-helpers (no prefixes): the full cache comes back unchanged."""
+    cfg.NON_EVENT_PREFIXES = []
+    x, y, xt, yt, labels = _full_cache()
+    out = _scope_cache(x, y, xt, yt, labels, False, True, "3.0")
+    assert out[4] == labels
+    assert out[1] is y
+
+
+def test_full_cache_drop_mode_keeps_helper_rows():
+    """Only rows orphaned by dropping an unlisted *species* are discarded."""
+    cfg.TRAIN_SPECIES_LIST = SITE_LIST
+    cfg.UNLISTED_HANDLING = "drop"
+    x, y, xt, yt, labels = _full_cache()
+    x_out, _, _, _, labels_out, is_binary, _, _ = _scope_cache(
+        x, y, xt, yt, labels, False, True, "3.0"
+    )
+    assert labels_out == [LISTED]
+    assert is_binary is True
+    assert len(x_out) == 4  # the unlisted-species row is gone
+    assert x_out[:, 0].tolist() == [0, 6, 9, 12]
+
+
+def test_cache_all_non_events_raises():
+    x, y, xt, yt, _ = _full_cache()
+    labels = ["Environment_Rain", "Environment_Wind", "Homo sapiens_Siren", "Noise"]
+    with pytest.raises(ValueError, match="non-event"):
+        _scope_cache(x, y, xt, yt, labels, False, True, "3.0")
 
 
 # --- CLI wiring ---------------------------------------------------------------------

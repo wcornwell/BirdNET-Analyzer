@@ -79,6 +79,8 @@ EXPECT_UNLISTED=false
 BACKBONE="3.0"
 BACKBONE_EXPLICIT=false
 EXPECT_BACKBONE=false
+SEED=""
+EXPECT_SEED=false
 EXTRA_ARGS=()
 for arg in "$@"; do
     # --library takes a value, so consume the token after it rather than passing it on.
@@ -95,12 +97,20 @@ for arg in "$@"; do
         UNLISTED="$arg"; EXPECT_UNLISTED=false
         EXTRA_ARGS+=(--unlisted "$arg"); continue
     fi
+    # --seed sets the train/val split + upsampling seed via BIRDNET_RANDOM_SEED, which
+    # config.py reads at import (default 42); the engine has no CLI flag for it.
+    if $EXPECT_SEED; then
+        SEED="$arg"; EXPECT_SEED=false; continue
+    fi
     if $EXPECT_BACKBONE; then
         BACKBONE="$arg"; BACKBONE_EXPLICIT=true; EXPECT_BACKBONE=false; continue
     fi
     case "$arg" in
         --birdnet)
             EXPECT_BACKBONE=true
+            ;;
+        --seed)
+            EXPECT_SEED=true
             ;;
         --library)
             EXPECT_LIBRARY=true
@@ -133,8 +143,16 @@ done
 $EXPECT_LIBRARY && { echo "Error: --library needs a directory." >&2; exit 1; }
 $EXPECT_SPECIES_LIST && { echo "Error: --species_list needs a file." >&2; exit 1; }
 $EXPECT_UNLISTED && { echo "Error: --unlisted needs non_event or drop." >&2; exit 1; }
+$EXPECT_SEED && { echo "Error: --seed needs an integer." >&2; exit 1; }
+if [[ -n "$SEED" ]]; then
+    [[ "$SEED" =~ ^[0-9]+$ ]] || { echo "Error: --seed needs an integer, got '$SEED'." >&2; exit 1; }
+    export BIRDNET_RANDOM_SEED="$SEED"
+fi
 $EXPECT_BACKBONE && { echo "Error: --birdnet needs a version (2.4 or 3.0)." >&2; exit 1; }
-[[ -d "$TRAIN_DATA" ]] || { echo "Error: training library not found: $TRAIN_DATA" >&2; exit 1; }
+# --library also takes a cache (.npz from --save_cache_to): the engine applies the helper
+# mode and species list to it as column slices, so one extraction serves every variant.
+[[ -d "$TRAIN_DATA" || ( -f "$TRAIN_DATA" && "$TRAIN_DATA" == *.npz ) ]] ||
+    { echo "Error: training library (folder or .npz cache) not found: $TRAIN_DATA" >&2; exit 1; }
 if [[ -n "$SPECIES_LIST" ]]; then
     [[ -f "$SPECIES_LIST" ]] || { echo "Error: species list not found: $SPECIES_LIST" >&2; exit 1; }
     case "$UNLISTED" in
@@ -208,6 +226,7 @@ else
 fi
 echo "Loader:   birdnet-library (refactor + #939)   [$GIT_DESC]"
 echo "Backbone: BirdNET $BACKBONE"
+echo "Seed:     ${BIRDNET_RANDOM_SEED:-42}"
 if $USER_SET_PREFIXES; then
     echo "Helpers:  per explicit --non_event_prefixes"
 elif $HELPERS_AS_NONEVENTS; then

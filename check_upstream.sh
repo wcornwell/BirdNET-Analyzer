@@ -76,8 +76,8 @@ done < <(git rev-list --reverse "$REF..$UP")
 
 echo
 echo "== BirdNET 3.0 training watch"
-markers=$(git grep -c -iE 'training does not support|3\.0 training is not yet supported' \
-    "$UP" -- birdnet_analyzer/model_utils.py docs/breaking-changes.rst 2>/dev/null |
+markers=$( { git grep -c -iE 'training does not support|3\.0 training is not yet supported' \
+    "$UP" -- birdnet_analyzer/model_utils.py docs/breaking-changes.rst 2>/dev/null || true; } |
     awk -F: '{s += $NF} END {print s + 0}')
 if [[ "$markers" -gt 0 ]]; then
     echo "  upstream still says 3.0 training is unsupported ($markers markers)."

@@ -81,22 +81,39 @@ def is_selected_species(label: str) -> bool:
     return scientific_prefix(label) in cfg.TRAIN_SPECIES_LIST
 
 
-def _scope_cache_to_species_list(
+def _scope_cache(
     x_train, y_train, x_test, y_test, labels, is_binary, is_multi_label, version
 ):
-    """Narrow an already-extracted cache to a site's species list.
+    """Apply the run's helper mode and species list to an already-extracted cache.
 
-    This is what makes a recognizer per site cheap: embedding the library is
-    site-independent, so it is paid once and every site is then a column slice of
-    y_train. A clip whose only positive class was dropped becomes an all-zero row --
-    which is exactly the non-event encoding -- so "non_event" mode is the slice alone
-    and needs no re-extraction. "drop" mode additionally discards those rows.
+    A cache stores one column per class it was extracted with, so the choices that
+    decide which classes get an output neuron -- --non_event_prefixes/--keep_as_class
+    and --species_list/--unlisted -- are applied here, as column slices, rather than
+    being baked in at extraction. That is what lets one library extraction serve every
+    helper mode and every site:
 
-    Rows already all-zero in the cache are the helper/non-event hard negatives. They
-    are kept in both modes, which is why the drop mask is built from rows that were
-    positive *before* the slice rather than from the sliced result.
+    * A column dropped because ``is_non_event()`` says so (a helper prefix, or an
+      unlisted species in "non_event" mode) leaves its rows all-zero -- exactly the
+      non-event encoding the folder path produces -- so those rows are kept.
+    * In "drop" mode, a row whose only positives were unlisted *species* is discarded.
+      Rows that were already all-zero, or that were positive for a helper, are kept:
+      they are the hard negatives the species classes depend on.
+
+    Inert when nothing matches: a cache with no helper columns and no species list
+    comes back unchanged.
     """
-    if not cfg.TRAIN_SPECIES_LIST:
+    labels = [str(label) for label in labels]
+
+    if cfg.TRAIN_SPECIES_LIST:
+        _warn_unmatched_species({scientific_prefix(label) for label in labels})
+
+    keep = [
+        i
+        for i, label in enumerate(labels)
+        if not is_non_event(label) and is_selected_species(label)
+    ]
+
+    if len(keep) == len(labels):
         return (
             x_train,
             y_train,
@@ -108,28 +125,29 @@ def _scope_cache_to_species_list(
             version,
         )
 
-    labels = [str(label) for label in labels]
-    _warn_unmatched_species({scientific_prefix(label) for label in labels})
-
-    keep = [i for i, label in enumerate(labels) if is_selected_species(label)]
-
     if not keep:
         raise ValueError(
             "The species list matched none of the cache's classes "
             f"({len(labels)} available). Wrong list, or a cache built from a "
             "different library?"
+            if cfg.TRAIN_SPECIES_LIST
+            else f"Every one of the cache's {len(labels)} classes is a non-event."
         )
 
     scoped_labels = [labels[i] for i in keep]
+    helper_cols = [i for i, label in enumerate(labels) if _is_helper_class(label)]
 
     def scope(x, y):
         if y.size == 0:
             return x, y
         was_positive = y.any(axis=1)
+        helper_positive = (
+            y[:, helper_cols].any(axis=1) if helper_cols else np.zeros(len(y), bool)
+        )
         y = y[:, keep]
 
-        if cfg.UNLISTED_HANDLING == "drop":
-            orphaned = was_positive & ~y.any(axis=1)
+        if cfg.TRAIN_SPECIES_LIST and cfg.UNLISTED_HANDLING == "drop":
+            orphaned = was_positive & ~helper_positive & ~y.any(axis=1)
             return x[~orphaned], y[~orphaned]
 
         return x, y
@@ -138,10 +156,12 @@ def _scope_cache_to_species_list(
     x_test, y_test = scope(x_test, y_test)
 
     logger.info(
-        "Species list: %d of %d cached classes kept (%s mode), %d training samples.",
+        "Cache scoped: %d of %d cached classes kept (%d non-event, species list %s), "
+        "%d training samples.",
         len(scoped_labels),
         len(labels),
-        cfg.UNLISTED_HANDLING,
+        sum(is_non_event(label) for label in labels),
+        f"{cfg.UNLISTED_HANDLING} mode" if cfg.TRAIN_SPECIES_LIST else "none",
         len(x_train),
     )
 
@@ -425,7 +445,7 @@ def _load_training_data(
     """
 
     if audio_input.endswith(".npz"):
-        return _scope_cache_to_species_list(*_load_from_cache(audio_input))
+        return _scope_cache(*_load_from_cache(audio_input))
 
     train_folders = list(utils.list_subdirectories(audio_input))
 
@@ -1190,6 +1210,7 @@ def train_model(
             "Unlisted handling": (
                 cfg.UNLISTED_HANDLING if cfg.TRAIN_SPECIES_LIST else ""
             ),
+            "Random seed": RANDOM_SEED,
         },
     )
 
