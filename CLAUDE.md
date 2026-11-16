@@ -691,7 +691,7 @@ probabilities); `--birdnet 2.4` for the old one. For repeated 3.0 runs on the sa
 extract once with `--save_cache_to <file>.npz` (~46 min for full `reallybig`) and pass that
 cache as the input of later runs — a cache trains on the backbone it was embedded with.
 
-Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
+Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv, revised by the 2026-11-16 ablation):
 
 | Parameter | Value |
 |-----------|-------|
@@ -699,8 +699,7 @@ Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 | dropout | 0.25 |
 | batch_size | 32 |
 | learning_rate | 0.0001 |
-| upsampling_mode | repeat |
-| upsampling_ratio | 0.4 |
+| upsampling | **none** (was `repeat` at ratio 0.4 until 2026-11-16; see "Recipe ablation on 3.0") |
 | focal_loss | true |
 | focal_loss_alpha | 0.25 |
 | focal_loss_gamma | 2.0 (was 3.0; the Smiths Lake gamma sweep — see the comment in `train_pelican.sh`) |
@@ -709,6 +708,54 @@ Default hyperparameters in `train_pelican.sh` (from pelican0-9_Params.csv):
 Override any parameter by appending flags: `./train_pelican.sh pelican0-11 --epochs 100`
 
 Appended flags are passed straight through to `birdnet_analyzer.train`, and argparse uses the last value, so an appended `--epochs 100` overrides the baked-in `--epochs 50`. Note: only flag-style overrides work — don't append a bare positional like `cache.npz`, since `train` accepts a single positional (`INPUT`, already set to the reallybig library) and a second one errors out. `train_pelican.sh` needs no cache — it passes the `reallybig` folder and the loader extracts embeddings inline. The `--cache_file` / `--cache_mode` flags still exist (they came in with the birdnet-library core and now live on `main`); the refactor's cache path only triggers when `INPUT` is a cache file, so the inline route is unaffected.
+
+### Recipe ablation on 3.0 — what earns its place (2026-11-16)
+
+Question: on the 3.0 backbone, does our recipe beat upstream's training as shipped (linear
+head, no dropout, no upsampling, no focal loss, helpers as positive classes), and which of our
+pieces and upstream's extras earn their place? One full 3.0 extraction of `reallybig`
+(`training_runs/out/recipe30/cache30_full.npz`, 101,862 samples, 479 labels), then 11
+single-change heads `abl30-*` off it, scored on Smiths Lake, Fowlers and Sarah's
+(`soundscape-eval/configs/*_recipe30.yaml`). Driver, scorer and analysis:
+`training_runs/configs/recipe30/{run.sh,score.sh,analyse.py}`; table in
+`training_runs/out/recipe30/analysis.txt`.
+
+**Noise band** = the spread of `fork` / `fork-s2` / `fork-s3` (same recipe, `--seed` 42/2/3).
+Rule: a piece is kept only if removing it costs more than the band on ≥2 of 3 soundscapes,
+Sarah's being one; an upstream extra is adopted by the same rule in reverse.
+
+AUPRC_all change vs the seed mean (↑/↓ = beyond the band):
+
+| arm | Smiths Lake | Fowlers | Sarah's | verdict |
+|---|---|---|---|---|
+| upstream vanilla | −0.021 ↓ | −0.007 ↓ | −0.007 ↓ | **our recipe wins** on all 3 (bestF1 too) |
+| − hidden layer (linear head) | −0.019 ↓ | −0.010 ↓ | −0.007 ↓ | **keep** — nearly the whole gap to vanilla |
+| − focal loss | +0.002 | +0.001 | +0.003 | **keep** — ranking-neutral, but see below |
+| − upsampling (ratio 0) | +0.000 | +0.003 ↑ | +0.003 | **retired** — costs nothing anywhere |
+| − helpers as non-events | +0.000 | −0.001 | −0.001 | neutral on every metric |
+| + `--label_smoothing` | −0.001 | +0.001 | +0.000 | not adopted |
+| + `--mixup` | +0.001 ↑ | +0.005 ↑ | +0.004 ↑ | not adopted — barely above the band, loses R@1/R@4 on Sarah's |
+| + `--upsampling_mode linear` | −0.001 | +0.002 | +0.002 | not adopted — R@1/R@4 −0.04 to −0.05 on Sarah's |
+
+- **Focal loss is kept for the operating point, not ranking.** Without it, Sarah's recall falls
+  0.061 at 1 FP/hr and 0.047 at 4 FP/hr (2.5× and 11× the seed spread). Not a one-species
+  artifact: without focal the scores crowd toward 1 (the 1 FP/hr threshold moves 0.59 → 0.96)
+  and the false alarms come from 10 species. Smiths Lake can't judge an operating point (1 h,
+  so 1/hr = one false alarm); Fowlers is roughly neutral. Strictly it fails the 2-of-3 rule —
+  a judgement call, made because Sarah's is the only soundscape whose budget no single
+  species carries.
+- **Helpers as non-events stays the default on other grounds** (cleaner output, the earlier
+  OOD evidence under "Helper classes as non-events"); this ablation says it is free, not that
+  it helps.
+- Vanilla looks better at R@1FP/hr on Smiths Lake and Fowlers, but both budgets are carried by
+  a few species (Fowlers: sheep 83%). Indicative only.
+- Three seeds is a thin band; effects just past its edge (mixup, dropping upsampling) are weak
+  evidence. Dropping upsampling was chosen because it is *free*, not because it wins.
+- `abl30-fork`'s label set equals `sync1007-bn30`'s exactly (464), which validated the cache
+  path's new helper-mode handling (`_scope_cache`, commit `3aeb9ec`).
+- Scoring: a 3.0 head scores at batch 1 on one core, so `score.sh` runs 5 `run score` workers
+  in parallel (~70 min for 29 pairs vs ~7 h serial). ⚠️ One score cache written to OneDrive
+  came out truncated (`BadZipFile` in `run all`); delete it and re-score that pair.
 
 ### Site-scoped recognizers — `--species_list` / `--unlisted` (added 2026-08-08)
 
@@ -1094,9 +1141,9 @@ Weaknesses to fix:
    does NOT leak.** The split runs FIRST and upsampling receives only the training half:
    `model.py:672/676` (`random_split` / `random_multilabel_split`) then `:681`
    (`upsampling(x_train, y_train, ...)`). A duplicated clip therefore cannot reach
-   validation. Worth having settled, since every pelican run upsamples
-   (`--upsampling_mode repeat --upsampling_ratio 0.4` in `train_pelican.sh`), so a leak
-   here would have inflated the recall in every `_validation_metrics.csv` we have.
+   validation. Worth having settled, since every pelican run up to 2026-11-16 upsampled
+   (`--upsampling_mode repeat --upsampling_ratio 0.4` in `train_pelican.sh`; dropped since),
+   so a leak here would have inflated the recall in every `_validation_metrics.csv` we have.
    **Upstream keeps the same order** (`upstream/main` `model.py:517/521` then `:531`), so
    the parked #968 rewrite does not put this at risk — re-check only if the *call order* in
    `train_model` ever changes, not merely because the upsampling internals do.

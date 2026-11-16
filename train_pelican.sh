@@ -253,14 +253,17 @@ echo ""
 # Launched via train_tf_first.py (not `-m birdnet_analyzer.train`) so TensorFlow binds
 # its absl before the birdnet-library loader imports PyArrow — without this the trainer
 # deadlocks at epoch 1 on macOS (see train_tf_first.py / CLAUDE.md).
+#
+# No upsampling since 2026-11-16 (was --upsampling_mode repeat --upsampling_ratio 0.4): the
+# recipe30 ablation on 3.0 found dropping it neutral-to-slightly-better on all three labelled
+# soundscapes. The hidden layer and focal loss earned their place; see CLAUDE.md, "Recipe
+# ablation on 3.0". Append --upsampling_ratio 0.4 to get the old recipe back.
 "$VENV" "$(dirname "$0")/train_tf_first.py" "$TRAIN_DATA" \
     -o "$OUTPUT_DIR/$NAME" \
     --hidden_units 2048 \
     --dropout 0.25 \
     -b 32 \
     --learning_rate 0.0001 \
-    --upsampling_mode repeat \
-    --upsampling_ratio 0.4 \
     --focal-loss \
     --focal-loss-alpha 0.25 \
     --focal-loss-gamma 2.0 \
