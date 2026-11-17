@@ -327,8 +327,21 @@ removed.
 Other changes
 -------------
 
-* **Perch** is not available on macOS — it needs a TensorFlow build that is not yet
-  published for that platform.
 * **Search** with a query longer than one segment (``--crop_mode segments``) ranks the
   results by their mean score over all query segments. v2.4.0 counted a result only for
   the query segments whose own top results contained it, so its rankings differ.
+* **The GUI's worker count** is automatic by default: the birdnet library starts as
+  many worker processes as fit the available memory, at most one per CPU core, where
+  v2.4.0 started one per logical core. A count set in an earlier version is ignored
+  until "Automatic worker count" is unchecked.
+* **m4a and wma files** are no longer offered, neither by the file dialog nor by the
+  folder scans of the analysis, training, segments and review tabs. The birdnet
+  library reads the formats libsndfile supports (wav, flac, mp3, ogg, aiff, ...);
+  v2.4.0 decoded the others through audioread, which needs a system decoder (CoreAudio
+  on macOS, ffmpeg elsewhere) that the installers never shipped. Convert such files to
+  wav or flac first.
+* **Segment folders** are named after the detection's common name with the characters a
+  folder name cannot hold (``< > : " / \ | ? *``) replaced by ``-`` and a trailing dot or
+  space dropped. v2.4.0 used the name as it was, which nested the folders of a name with
+  ``/`` (``Eurasian/Green-winged Teal``) and failed on Windows for a name with ``?``.
+  Segments extracted again into an existing output folder land in the new folder.

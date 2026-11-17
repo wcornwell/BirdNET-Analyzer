@@ -207,7 +207,7 @@ match the interrupted run, otherwise the analysis starts over; see
 <p>Default: <code class="docutils literal notranslate"><span class="pre">1</span></code></p>
 </dd>
 <dt><kbd>--n_workers</kbd></dt>
-<dd><p>Number of worker processes for audio processing. Defaults to number of CPU cores.</p>
+<dd><p>Number of worker processes for audio processing. Defaults to as many as fit the available memory, at most one per CPU core.</p>
 </dd>
 <dt><kbd>--n_producers</kbd></dt>
 <dd><p>Number of producer processes for audio processing. Defaults to 1.</p>
@@ -302,7 +302,7 @@ Embeddings can be used for clustering or similarity analysis. Here is an example
 <p>Default: <code class="docutils literal notranslate"><span class="pre">8</span></code></p>
 </dd>
 <dt><kbd>--n_workers</kbd></dt>
-<dd><p>Number of worker processes for audio processing. Defaults to number of CPU cores.</p>
+<dd><p>Number of worker processes for audio processing. Defaults to as many as fit the available memory, at most one per CPU core.</p>
 </dd>
 <dt><kbd>--n_producers</kbd></dt>
 <dd><p>Number of producer processes for audio processing. Defaults to 1.</p>
@@ -487,6 +487,7 @@ Negative samples cannot be used for binary classification, instead include these
 <p><strong>Multi-label data</strong></p>
 <p>To train with multi-label data separate the class labels with commas in the folder names (e.g., <code class="docutils literal notranslate"><span class="pre">Poecile</span> <span class="pre">atricapillus_Black-capped</span> <span class="pre">Chickadee,Cardinalis</span> <span class="pre">cardinalis_Northern</span> <span class="pre">Cardinal</span></code>).
 This can also be combined with negative samples as described above.
+A negative sample also counts as not containing any other class, so a recording that does contain another trained species belongs in a combined folder (e.g., <code class="docutils literal notranslate"><span class="pre">Cardinalis</span> <span class="pre">cardinalis_Northern</span> <span class="pre">Cardinal,-Poecile</span> <span class="pre">atricapillus_Black-capped</span> <span class="pre">Chickadee</span></code>).
 The validation split will be performed combination of classes, so you might want to ensure sufficient data for each combination of classes.
 When using multi-label data the upsampling mode will be limited to ‘repeat’.</p>
 <div class="admonition note">
