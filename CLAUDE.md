@@ -415,6 +415,41 @@ sync venv), ruff clean, curation scripts and soundscape-eval (checkpoints via
 `SOUNDSCAPE_EVAL_BIRDNET_CHECKPOINTS`) unaffected — a cached re-compare was byte-identical.
 Delete `.venv-pre1007` once nothing has needed it for a while.
 
+**Upstream sync — 2026-11-17 (branch `upstream-sync-2026-11`): #1026 → #1042, `birdnet` → 1.4.0.**
+13 commits `8095252..9db5740`, merged with **no conflicts**. Five tagged RED by path; none
+changes what our training computes:
+- **`birdnet` 1.4.0 ships the SAME 3.0 checkpoint as 1.3.1** — `BirdNET+_V3.0-preview3.1_Global_11K`,
+  same Zenodo record, same labels SHA-256. The 16,852-class checkpoint #1042 "prepares for" was
+  tested upstream against a locally pinned birdnet and is **not** in this release. When a
+  birdnet release does switch it, every 3.0 cache/head/centroid is stale and the recipe30
+  ablation (`training_runs/configs/recipe30/`) should be re-run.
+- **Embeddings bit-identical** 1.3.1 vs 1.4.0 on both backbones (240 `reallybig` clips through
+  each venv's `encode_session` at training batch sizes: 3.0 and 2.4 max|diff| 0.0). 1.4.0
+  rewrote its inference pipeline (shared memory, memory-sized worker counts) without moving a bit.
+- **#1037 clamps labels at 0 in `focal_loss`/`custom_loss`/mixup** — only `-<class>` folders
+  produce −1, `reallybig` has none, so a no-op for us.
+- **#1039 drops `m4a` and `wma` from `ALLOWED_FILETYPES`** (soundfile formats only). `reallybig`
+  is 101,703 wav + 67 mp3, unaffected — but an `.m4a` landing in a class folder is now silently
+  skipped, and `Training_library_assembly_pipeline/curation/source_diversity_audit.py` mirrors
+  the old list by hand.
+- **#1026 "Eval rework" deleted ~390 upstream tests** (`tests/evaluation/assessment/test_plotting.py`,
+  `preprocessing/test_data_processor.py`, `tests/search/test_utils.py`, slimmer others), so the
+  suite is **482 passed / 27 skipped**, down from 868 — not lost coverage of ours; every fork test
+  is intact.
+- `__version__` 2.4.0 → 3.0.0; `birdnet_analyzer` now also sets a matplotlib config dir at import.
+
+**Gate (sync worktree + venv, every other package pinned to the shared venv's freeze):** ruff
+clean; suite as above; subset smoke (4 species + Rain/Wind/Airplane/Siren + Noise, 3 epochs,
+3.0) default / `--report-helpers` / `--keep-airplane-siren` → 4 / 8 / 6 labels; `--save_cache_to`
+then training off that cache → 4; seed + helper provenance in the params CSV; `analyze
+--classifier` with a 3.0 head gives **identical detections** to `main`'s engine; soundscape-eval
+imports against it. No full-`reallybig` run: identical embeddings and an inert loss change
+leave a head nothing to differ by.
+
+⚠️ A cache saved by a **default-mode** run has no helper columns, so `--report-helpers` off it
+still yields species only. Extract with `--report-helpers` (as `recipe30/run.sh` does) when one
+cache must serve every helper mode.
+
 **Run `./check_upstream.sh` monthly (and at the start of a session here).** Read-only. It prints
 behind/ahead, a `merge-tree` conflict dry run, every incoming commit tagged RED (training / model
 / audio / `model_utils` / birdnet pin → full train + soundscape-eval) · AMBER (config / cli /
