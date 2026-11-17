@@ -446,6 +446,12 @@ then training off that cache → 4; seed + helper provenance in the params CSV; 
 imports against it. No full-`reallybig` run: identical embeddings and an inert loss change
 leave a head nothing to differ by.
 
+**Landed 2026-11-17:** `main` fast-forwarded to `5671c98`; shared `.venv` upgraded **birdnet
+1.3.1 → 1.4.0 and nothing else** (pinned to its own freeze; soundscape-eval / score-ensemble /
+resampy intact). On `main`: suite 482 / 27, ruff clean, cached `run all` on
+`smithslake_recipe30` gave a byte-identical `summary.csv`. Both sync branches deleted; the
+`BirdNET-sync` worktree is left detached for the next sync.
+
 ⚠️ A cache saved by a **default-mode** run has no helper columns, so `--report-helpers` off it
 still yields species only. Extract with `--report-helpers` (as `recipe30/run.sh` does) when one
 cache must serve every helper mode.
