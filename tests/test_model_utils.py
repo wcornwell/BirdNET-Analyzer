@@ -1,5 +1,4 @@
-"""Tests for analysis session pause/cancel behavior in model_utils."""
-
+import birdnet
 import pytest
 
 from birdnet_analyzer import model_utils
@@ -39,27 +38,21 @@ def test_pause_with_no_active_sessions_is_a_noop():
 
 
 def test_language_for_version_keeps_supported_and_falls_back_otherwise():
-    # The 2.4 and 3.0 models support overlapping but non-identical language sets, and
-    # the library raises on an unsupported (version, locale) pair. _language_for_version
-    # coerces such a locale to en_us so an analysis never crashes on the label language.
+    # The library raises on an unsupported (version, locale) pair.
     from birdnet.globals import (
         MODEL_LANGUAGE_EN_US,
         VALID_MODEL_LANGUAGES_V2_4,
         VALID_MODEL_LANGUAGES_V3_0,
     )
 
-    # en_us is the coercion target, so it must be valid for every version.
     assert MODEL_LANGUAGE_EN_US in VALID_MODEL_LANGUAGES_V2_4
     assert MODEL_LANGUAGE_EN_US in VALID_MODEL_LANGUAGES_V3_0
 
     only_v24 = sorted(set(VALID_MODEL_LANGUAGES_V2_4) - set(VALID_MODEL_LANGUAGES_V3_0))
     only_v30 = sorted(set(VALID_MODEL_LANGUAGES_V3_0) - set(VALID_MODEL_LANGUAGES_V2_4))
-    # The whole point of the coercion is that the sets are not nested; if the library
-    # ever makes one a superset of the other this test should be revisited.
     assert only_v24
     assert only_v30
 
-    # A 2.4-only locale is kept for 2.4 but coerced to en_us for 3.0, and vice versa.
     assert model_utils._language_for_version(only_v24[0], "2.4") == only_v24[0]
     assert model_utils._language_for_version(only_v24[0], "3.0") == MODEL_LANGUAGE_EN_US
     assert model_utils._language_for_version(only_v30[0], "3.0") == only_v30[0]
@@ -84,7 +77,7 @@ def test_classifier_version_reads_each_file_once(monkeypatch, tmp_path):
         return SimpleNamespace(version="3.0")
 
     monkeypatch.setattr(model_utils.birdnet, "inspect_custom_tflite", fake_inspect)
-    model_utils._inspect_classifier.cache_clear()
+    model_utils._INSPECTIONS.clear()
     classifier = tmp_path / "cc.tflite"
     classifier.write_bytes(b"v1")
 
@@ -97,9 +90,87 @@ def test_classifier_version_reads_each_file_once(monkeypatch, tmp_path):
     assert len(calls) == 2, "a changed file is inspected again"
 
 
+def test_without_litert_the_tensorflow_interpreter_inspects_the_classifier(
+    monkeypatch, tmp_path
+):
+    import sys
+    from types import SimpleNamespace
+
+    calls = []
+
+    def fake_inspect(path, *, library):
+        calls.append(library)
+        return SimpleNamespace(version="2.4")
+
+    monkeypatch.setattr(model_utils.birdnet, "inspect_custom_tflite", fake_inspect)
+    monkeypatch.setitem(sys.modules, "ai_edge_litert", None)
+    model_utils._INSPECTIONS.clear()
+    classifier = tmp_path / "cc.tflite"
+    classifier.write_bytes(b"x")
+
+    assert model_utils.classifier_version(str(classifier)) == "2.4"
+    assert calls == ["tflite"]
+
+
+def test_an_unusable_classifier_is_inspected_once(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_inspect(path, *, library):
+        calls.append(path)
+        raise ValueError("detached head")
+
+    monkeypatch.setattr(model_utils.birdnet, "inspect_custom_tflite", fake_inspect)
+    model_utils._INSPECTIONS.clear()
+    classifier = tmp_path / "head.tflite"
+    classifier.write_bytes(b"x")
+
+    for _ in range(2):
+        with pytest.raises(ValueError, match="detached head"):
+            model_utils.classifier_info(str(classifier))
+
+    assert len(calls) == 1
+
+
+def test_an_analysis_retries_a_failed_inspection(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    calls = []
+
+    def fake_inspect(path, *, library):
+        calls.append(path)
+        if len(calls) == 1:
+            raise ValueError("Failed to inspect model due to timeout.")
+        return SimpleNamespace(version="3.0")
+
+    monkeypatch.setattr(model_utils.birdnet, "inspect_custom_tflite", fake_inspect)
+    model_utils._INSPECTIONS.clear()
+    classifier = tmp_path / "cc.tflite"
+    classifier.write_bytes(b"x")
+
+    for _ in range(2):
+        with pytest.raises(ValueError, match="timeout"):
+            model_utils.classifier_info(str(classifier))
+    assert len(calls) == 1
+
+    assert model_utils.classifier_version(str(classifier)) == "3.0"
+    assert len(calls) == 2
+
+
 def test_classifier_version_rejects_a_missing_file():
     with pytest.raises(FileNotFoundError):
         model_utils.classifier_version("nowhere/cc.tflite")
+
+
+def test_each_model_has_a_segment_length():
+    assert model_utils.segment_length_s("2.4") == 3.0
+    assert model_utils.segment_length_s("3.0") == 3.0
+    assert model_utils.segment_length_s("perch") == 5.0
+
+
+def test_each_model_has_a_class_count():
+    assert model_utils.class_count("2.4") == 6522
+    assert model_utils.class_count("3.0") == birdnet.AcousticModelV3_0.get_n_classes()
+    assert model_utils.class_count("perch") == 14795
 
 
 def test_classifier_batch_size_is_one_on_3_0():

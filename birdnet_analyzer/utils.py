@@ -1,6 +1,5 @@
 """Module containing common function."""
 
-import itertools
 import os
 import warnings
 from functools import cache
@@ -58,18 +57,6 @@ def runtime_error_handler(f):
             raise
 
     return wrapper
-
-
-def batched(iterable, n, *, strict=False):
-    # TODO: Remove this function when Python 3.12 is the minimum version
-    # batched('ABCDEFG', 3) → ABC DEF G
-    if n < 1:
-        raise ValueError("n must be at least one")
-    iterator = iter(iterable)
-    while batch := tuple(itertools.islice(iterator, n)):
-        if strict and len(batch) != n:
-            raise ValueError("batched(): incomplete batch")
-        yield batch
 
 
 def spectrogram_from_file(
@@ -189,6 +176,7 @@ def spectrogram_from_audio(
 
     D = librosa.stft(s, n_fft=n_fft, hop_length=hop_length)
     S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max, top_db=top_db)
+    S_db, hop_length = _pool_frames(S_db, hop_length, int(f.get_figwidth() * f.dpi))
 
     spec = librosa.display.specshow(
         S_db,
@@ -211,6 +199,29 @@ def spectrogram_from_audio(
         f.tight_layout(pad=0)
 
     return spec.figure
+
+
+def _pool_frames(S_db, hop_length: int, width_px: int):
+    """Keeps at most one frame per pixel of width, each the maximum of its block.
+
+    Drawing one frame per column costs seconds for an hour of audio and shows nothing
+    more, and a column narrower than a pixel is often not drawn at all; the maximum
+    keeps short calls visible.
+    """
+    import numpy as np
+
+    frames = S_db.shape[1]
+    columns = width_px
+
+    if frames <= columns:
+        return S_db, hop_length
+
+    factor = -(-frames // columns)
+    padding = -frames % factor
+    S_db = np.pad(S_db, ((0, 0), (0, padding)), constant_values=S_db.min())
+    pooled = S_db.reshape(S_db.shape[0], -1, factor).max(axis=2)
+
+    return pooled, hop_length * factor
 
 
 def collect_audio_files(path: str, max_files: int | None = None):
@@ -298,18 +309,11 @@ def read_lines(
 _BIRDNET_SUFFIX = "Model_FP32.tflite"
 
 
-def read_classifier_labels(classifier_file: str) -> list[str] | None:
-    """Reads the labels belonging to a custom classifier.
+def classifier_labels_path(classifier_file: str) -> str | None:
+    """The label file next to a custom classifier, or None if there is none.
 
-    Looks for the label file next to the classifier, following the naming used when a
-    custom classifier is trained, and falls back to the naming of the shipped BirdNET
-    models.
-
-    Args:
-        classifier_file: Absolute path to the classifier file.
-
-    Returns:
-        The labels, or None if no label file was found.
+    Follows the naming used when a custom classifier is trained, and falls back to the
+    naming of the shipped BirdNET models.
     """
     base_name = os.path.splitext(classifier_file)[0]
     labels_file = base_name + "_Labels.txt"
@@ -317,7 +321,14 @@ def read_classifier_labels(classifier_file: str) -> list[str] | None:
     if not os.path.isfile(labels_file) and classifier_file.endswith(_BIRDNET_SUFFIX):
         labels_file = classifier_file.removesuffix(_BIRDNET_SUFFIX) + "Labels.txt"
 
-    if not os.path.isfile(labels_file):
+    return labels_file if os.path.isfile(labels_file) else None
+
+
+def read_classifier_labels(classifier_file: str) -> list[str] | None:
+    """The labels of a custom classifier, or None if it has no label file."""
+    labels_file = classifier_labels_path(classifier_file)
+
+    if labels_file is None:
         return None
 
     return read_lines(labels_file, fail_on_blank_lines=True)

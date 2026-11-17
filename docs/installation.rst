@@ -12,6 +12,33 @@ You can download the latest BirdNET-Analyzer installer for Windows and MacOS fro
     | Installation was only tested on M1 and M2 chips.
     | Feedback on older Intel CPUs or newer M3 chips is welcome!
 
+Windows Package Manager
+-----------------------
+
+On Windows, once the package is listed in the Windows Package Manager, you can also install and upgrade BirdNET-Analyzer with:
+
+.. code-block:: powershell
+
+   winget install BirdNET-Team.BirdNET-Analyzer
+   winget upgrade BirdNET-Team.BirdNET-Analyzer
+
+Linux
+-----
+
+Two packages are attached to each `release <https://github.com/birdnet-team/BirdNET-Analyzer/releases/latest>`_.
+Both need an x86_64 distribution with glibc 2.35 or newer, such as Ubuntu 22.04, Debian 12 or Fedora 36 and later.
+
+- ``BirdNET-Analyzer-<version>-linux_x86_64.AppImage`` runs without installation: make the file executable and start it.
+  The command line tool is included, ``./BirdNET-Analyzer-<version>-linux_x86_64.AppImage analyze --help`` shows its options.
+- ``birdnet-analyzer_<version>_amd64.deb`` is for Debian, Ubuntu and their derivatives. It adds a menu entry and the
+  ``birdnet-analyzer-gui`` and ``birdnet-analyze`` commands:
+
+  .. code-block:: bash
+
+     sudo apt install ./birdnet-analyzer_<version>_amd64.deb
+
+Settings and the downloaded models are kept in ``~/.local/share/BirdNET-Analyzer-GUI``.
+
 Raven Pro
 ---------
 
@@ -44,23 +71,11 @@ When using the `birdnet`-package, you can run BirdNET with:
 
 .. code-block:: python
 
-   from pathlib import Path
-   from birdnet.models import ModelV2M4
+   import birdnet
 
-   # create model instance for v2.4
-   model = ModelV2M4()
-
-   # predict species within the whole audio file
-   species_in_area = model.predict_species_at_location_and_time(42.5, -76.45, week=4)
-   predictions = model.predict_species_within_audio_file(
-      Path("soundscape.wav"),
-      filter_species=set(species_in_area.keys())
-   )
-
-   # get most probable prediction at time interval 0s-3s
-   prediction, confidence = list(predictions[(0.0, 3.0)].items())[0]
-   print(f"predicted '{prediction}' with a confidence of {confidence:.6f}")
-   # predicted 'Poecile atricapillus_Black-capped Chickadee' with a confidence of 0.814056
+   if __name__ == "__main__":
+       model = birdnet.load("acoustic", "3.0", "onnx")
+       predictions = model.predict("soundscape.wav")
 
 For more examples and documentation, make sure to visit `pypi.org/project/birdnet/ <https://pypi.org/project/birdnet/>`_.
 
@@ -69,7 +84,7 @@ For any feature request or questions regarding `birdnet`, please add an issue or
 Command line installation
 -------------------------
 
-Requires Python 3.10. or 3.11.
+Requires Python 3.11 to 3.13.
 
 Clone the repository
 
@@ -91,8 +106,9 @@ Install the packages
 
    Use ``pip install .[all]`` to install all packages.
 
-   When building a GUI for systems using GTK with pywebview, you may need to install additional packages: qtpy and PyGObject. 
-   Use the following command: ``pip install qtpy PyGObject``.
+   On Linux, the ``gui`` extra installs PySide6 for the application window. Qt needs the system's xcb
+   libraries; on Debian and Ubuntu, ``sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1
+   libxcb-shape0 libxkbcommon-x11-0`` covers the ones a desktop installation may lack.
 
 Verify the installation
 

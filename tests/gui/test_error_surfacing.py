@@ -2,7 +2,6 @@ import pytest
 
 gr = pytest.importorskip("gradio")
 
-from birdnet_analyzer import settings  # noqa: E402
 from birdnet_analyzer.gui import (  # noqa: E402
     embeddings,
     evaluation,
@@ -17,20 +16,19 @@ from birdnet_analyzer.gui import (  # noqa: E402
 from birdnet_analyzer.gui import state as gs  # noqa: E402
 from birdnet_analyzer.gui import utils as gu  # noqa: E402
 
-MODEL_CONTROLS = {
-    "on_change",
-    "on_model_change",
-    "on_model_selection_change",
-    "show_species_choice",
-    "warn_unmatched_species",
-}
+MODEL_CONTROLS = {"on_change", "show_species_choice", "warn_unmatched_species"}
 
 TABS = {
     "review": (review.build_review_tab, {"toggle_autoplay"}),
-    "search": (search.build_search_tab, {"on_crop_select"}),
+    "search": (search.build_search_tab, {"on_crop_mode_change"}),
     "evaluation": (
         evaluation.build_evaluation_tab,
-        {"recompute_overall", "toggle_after_selection"},
+        {
+            "_lock_calculation",
+            "_unlock_calculation",
+            "recompute_overall",
+            "toggle_after_selection",
+        },
     ),
     "single_file": (
         single_file.build_single_analysis_tab,
@@ -56,7 +54,6 @@ TABS = {
         train.build_train_tab,
         {
             "<lambda>",
-            "clear_cache_location",
             "on_autotune_change",
             "on_cache_mode_change",
             "on_crop_or_cache_mode_change",
@@ -71,16 +68,6 @@ TABS = {
 }
 
 _WRAPPER_CODE = gu.gui_runtime_error_handler(lambda: None).__code__
-
-
-@pytest.fixture
-def appdir(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "APPDIR", tmp_path)
-    monkeypatch.setattr(settings, "STATE_SETTINGS_PATH", str(tmp_path / "state.json"))
-    monkeypatch.setattr(settings, "GUI_SETTINGS_PATH", str(tmp_path / "gui.json"))
-    monkeypatch.setattr(settings, "ERROR_LOG_FILE", str(tmp_path / "error_log.txt"))
-    monkeypatch.setattr(gs, "_PERSISTED", [])
-    monkeypatch.setattr(gu, "plot_map_scatter_mapbox", lambda *a, **k: None)
 
 
 def _handlers(build):

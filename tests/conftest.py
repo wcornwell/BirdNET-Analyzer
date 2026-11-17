@@ -1,7 +1,12 @@
 import os
 import sqlite3
+import tempfile
 
 import pytest
+
+# Every gr.Blocks() would otherwise phone home from a thread, and the socket it
+# leaves behind can surface as a ResourceWarning in an unrelated test.
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 # Importing the package applies the GUI's persisted model directory to the birdnet
 # library; a test run must not depend on this machine's GUI settings.
@@ -9,6 +14,41 @@ if "BIRDNET_APP_DATA" not in os.environ:
     from birdnet.utils.local_data import get_app_data_path
 
     os.environ["BIRDNET_APP_DATA"] = str(get_app_data_path() / "birdnet")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def two_inference_workers():
+    """Caps the birdnet library's default worker count at 2.
+
+    The default is one worker per physical core when memory allows, each loading
+    its own model.
+    """
+    from birdnet.acoustic.inference import session
+
+    default_n_workers = session.default_n_workers
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            session,
+            "default_n_workers",
+            lambda **kwargs: min(2, default_n_workers(**kwargs)),
+        )
+        yield
+
+
+@pytest.fixture(autouse=True, scope="session")
+def session_tempdir(tmp_path_factory):
+    """Keeps the run's temporary files, e.g. the birdnet session logs, out of TEMP.
+
+    The environment variables carry it to spawned worker processes.
+    """
+    tempdir = str(tmp_path_factory.mktemp("tempdir"))
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(tempfile, "tempdir", tempdir)
+        for name in ("TEMP", "TMP", "TMPDIR"):
+            patch.setenv(name, tempdir)
+        yield
 
 
 @pytest.fixture(autouse=True)

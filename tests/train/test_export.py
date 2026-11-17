@@ -1,9 +1,10 @@
 """Real exports of a classifier head on each BirdNET base.
 
-They need the base model's SavedModel, which CI does not pre-download (the 3.0 one
-is a 500 MB zip), so each test skips unless that model is already cached.
+They need the base model's SavedModel, so each test skips unless that model is
+already cached. CI pre-downloads the 3.0 one only.
 """
 
+import csv
 import json
 
 import numpy as np
@@ -12,33 +13,32 @@ import pytest
 tf = pytest.importorskip("tensorflow")
 keras = pytest.importorskip("keras")
 
+# The 3.0 TFLite conversions pass 120 s on the macOS runners.
+pytestmark = pytest.mark.timeout(300)
+
 from birdnet_analyzer import model  # noqa: E402
+from tests.models import pb_model_cached  # noqa: E402
 
 LABELS = ["Sci a_Common a", "Sci b_Common b", "Sci c_Common c"]
 
 
 def _audio(base):
-    """A noise segment: digital silence takes the 3.0 SavedModel to NaN scores."""
+    # Noise, not digital silence: silence takes the 3.0 SavedModel to NaN scores.
     rng = np.random.default_rng(0)
 
     return rng.normal(0, 0.05, (1, base.segment_samples)).astype(np.float32)
 
 
-def _pb_cached(version: str) -> bool:
-    from birdnet.utils.helper import check_protobuf_model_files_exist
-    from birdnet.utils.local_data import get_model_path
-
-    return check_protobuf_model_files_exist(
-        get_model_path("acoustic", version, "pb", "fp32")
-    )
-
-
-needs_3_0 = pytest.mark.skipif(not _pb_cached("3.0"), reason="3.0 pb model not cached")
-needs_2_4 = pytest.mark.skipif(not _pb_cached("2.4"), reason="2.4 pb model not cached")
+needs_3_0 = pytest.mark.skipif(
+    not pb_model_cached("3.0"), reason="3.0 pb model not cached"
+)
+needs_2_4 = pytest.mark.skipif(
+    not pb_model_cached("2.4"), reason="2.4 pb model not cached"
+)
 
 
 def _head(version: str):
-    """A trained classifier as train_model hands it over: activation popped."""
+    # As train_model hands a classifier over: the activation popped.
     classifier = model.build_linear_classifier(
         len(LABELS), model.base_model(version).embeddings_dim
     )
@@ -228,4 +228,17 @@ def test_raven_append_keeps_the_official_scores(tmp_path, version):
     scores = basic(inputs=audio)["scores"].numpy()
     assert scores.shape == (1, len(official) + len(LABELS))
     np.testing.assert_allclose(scores[:, : len(official)], expected, atol=1e-5)
-    assert _read_labels(tmp_path / "cc_Labels.txt") == [*official, *LABELS]
+    labels = [*official, *LABELS]
+    assert _read_labels(tmp_path / "cc_Labels.txt") == labels
+
+    with open(path / "labels" / "label_names.csv", encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    ids = [label_id for label_id, _ in rows]
+    assert [label for _, label in rows] == labels
+    assert len(set(ids)) == len(labels)
+    with open(path / "classes" / "classes.csv", encoding="utf-8", newline="") as f:
+        assert list(csv.reader(f)) == [
+            [label_id, "0.25", "0", "15000", "False"] for label_id in ids
+        ]
+    with open(path / "model_config.json", encoding="utf-8") as f:
+        assert json.load(f)["globalSemanticKeys"] == ids

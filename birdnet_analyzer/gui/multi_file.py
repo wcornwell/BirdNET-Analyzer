@@ -62,6 +62,7 @@ def run_batch_analysis(
     locale,
     batch_size,
     producers_number,
+    workers_auto,
     workers_number,
     input_dir,
     progress=gr.Progress(),
@@ -102,7 +103,7 @@ def run_batch_analysis(
             save_params=True,
             progress=progress,
             n_producers=producers_number,
-            n_workers=workers_number,
+            n_workers=None if workers_auto else workers_number,
             split_tables=split_tables_checkbox,
         )
     except RuntimeError:
@@ -176,7 +177,7 @@ def refresh_resume_status(input_dir, output_dir):
     )
 
 
-def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
+def build_multi_analysis_tab() -> None:
     state = TabState("multi")
 
     with gr.Tab(loc.localize("multi-tab-title")):
@@ -345,7 +346,9 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
                 info=loc.localize("multi-tab-split-table-checkbox-info"),
             )
 
-        bs_number, producers_number, workers_number = gu.computing_settings(state)
+        bs_number, producers_number, workers_auto_checkbox, workers_number = (
+            gu.computing_settings(state)
+        )
         resume_status_md = gr.Markdown(visible=False)
 
         with gr.Row(equal_height=True):
@@ -374,7 +377,7 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             sample_settings["fmin_number"],
             sample_settings["fmax_number"],
             species_settings["species_list_radio"],
-            species_settings["species_file_input"],
+            species_settings["species_file_state"],
             species_settings["lat_number"],
             species_settings["lon_number"],
             species_settings["week_number"],
@@ -388,6 +391,7 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             model_settings["locale_dropdown"],
             bs_number,
             producers_number,
+            workers_auto_checkbox,
             workers_number,
             input_directory_state,
         ]
@@ -440,20 +444,16 @@ def build_multi_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             show_additional_columns,
             inputs=output_type_radio,
             outputs=additional_columns_,
+            show_progress="hidden",
         )
         preset_controls.wire(
             state,
             species_file_input=species_settings["species_file_input"],
+            species_file_state=species_settings["species_file_state"],
             classifier_state=model_settings["selected_classifier_state"],
             classifier_file_input=model_settings["classifier_file_input"],
             classifier_labels_df=model_settings["classifier_labels_df"],
         )
-
-    return (
-        species_settings["lat_number"],
-        species_settings["lon_number"],
-        species_settings["map_plot"],
-    )
 
 
 if __name__ == "__main__":

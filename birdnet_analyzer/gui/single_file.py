@@ -37,6 +37,34 @@ def __getattr__(name: str) -> str:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+# What every embedded browser plays; WebKit before macOS 15.4 has no Ogg.
+BROWSER_PLAYABLE = (".wav", ".flac", ".mp3")
+
+
+def audio_preview(path: str):
+    """The player's value for a file: the file itself when the browser can play it."""
+    import soundfile as sf
+
+    # An unreadable file fails here with its reason, not silently in the player.
+    info = sf.info(path)
+    # A wav may hold anything; 16 and 24 bit PCM is what every browser plays.
+    uncommon_wav = info.format.startswith("WAV") and info.subtype not in (
+        "PCM_16",
+        "PCM_24",
+    )
+
+    if path.lower().endswith(BROWSER_PLAYABLE) and not uncommon_wav:
+        # Served from where it is; gradio would otherwise hash and copy it into its
+        # cache, seconds and a second copy on disk for a long recording.
+        gr.set_static_paths([path])
+
+        return path
+
+    data, rate = sf.read(path, dtype="float32")
+
+    return rate, data
+
+
 @gu.gui_runtime_error_handler
 def run_single_file_analysis(
     input_path,
@@ -174,7 +202,7 @@ def run_single_file_analysis(
     )
 
 
-def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
+def build_single_analysis_tab() -> None:
     state = TabState("single")
 
     with gr.Tab(loc.localize("single-tab-title")):
@@ -199,12 +227,15 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             )
 
         audio_input = gr.Audio(
-            type="numpy",
+            type="filepath",
             label=loc.localize("single-audio-label"),
             interactive=False,
             visible=False,
             buttons=[],
             editable=False,
+            # The browser's own player streams the file; the waveform player downloads
+            # and decodes all of it before it shows anything.
+            waveform_options=gr.WaveformOptions(show_recording_waveform=False),
         )
 
         with gr.Group(visible=False) as spectrogram_group:
@@ -220,6 +251,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             info=loc.localize("single-tab-spectrogram-checkbox-info"),
         )
         audio_path_state = gr.State()
+        spectrogram_request = gr.State()
         last_prediction_state = gr.State()
         sample_settings, species_settings, model_settings = (
             gu.sample_species_model_settings(state, opened=False)
@@ -261,81 +293,59 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
         )
 
         @gu.gui_runtime_error_handler
-        def select_and_load_audio_file(generate_spectrogram=False):
+        def select_and_load_audio_file():
             """Use webview dialog to select audio file and load it."""
-            from birdnet_analyzer import audio
-
             file_path = gu.select_file(
-                filetypes=(
-                    "Audio files (*.wav;*.flac;*.mp3;*.ogg;*.m4a;*.wma;*.aiff;*.aif)",
-                ),
+                filetypes=("Audio files (*.wav;*.flac;*.mp3;*.ogg;*.aiff;*.aif)",),
                 state_key="single_file_audio",
             )
 
-            if file_path:
-                data, sr = audio.open_audio_file(file_path)
+            if not file_path:
+                return gr.skip(), gr.skip(), gr.skip(), gr.skip(), None
 
-                if generate_spectrogram:
-                    try:
-                        figure = utils.spectrogram_from_file(
-                            file_path,
-                            fig_size=(20, 4),
-                            fig_num=MATPLOTLIB_FIGURE_NUM,
-                            **gu.spectrogram_settings(),
-                        )
-                    except Exception as e:
-                        raise gr.Error(
-                            loc.localize("single-tab-generate-spectrogram-error")
-                        ) from e
-
-                    spectrogram = gr.update(visible=True, value=figure)
-                else:
-                    spectrogram = gr.update(visible=False)
-
-                return (
-                    file_path,
-                    file_path,
-                    gr.update(
-                        visible=True,
-                        value=(sr, data),
-                        label=os.path.basename(file_path),
-                    ),
-                    gr.update(visible=generate_spectrogram),
-                    spectrogram,
-                    gr.update(interactive=True),
-                )
+            preview = audio_preview(file_path)
 
             return (
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                gr.update(visible=False),
-                gr.update(),
-                gr.update(interactive=False),
+                file_path,
+                file_path,
+                gr.update(
+                    visible=True,
+                    value=preview,
+                    label=os.path.basename(file_path),
+                ),
+                gr.update(interactive=True),
+                file_path,
             )
+
+        def spectrogram_updates(audio_path, generate_spectrogram):
+            if not (audio_path and generate_spectrogram):
+                return gr.update(visible=False), None
+
+            try:
+                figure = utils.spectrogram_from_file(
+                    audio_path,
+                    fig_size=(20, 4),
+                    fig_num=MATPLOTLIB_FIGURE_NUM,
+                    **gu.spectrogram_settings(),
+                )
+            except Exception as e:
+                raise gr.Error(
+                    loc.localize("single-tab-generate-spectrogram-error")
+                ) from e
+
+            return gr.update(visible=True), gr.update(visible=True, value=figure)
 
         @gu.gui_runtime_error_handler
         def try_generate_spectrogram(audio_path, generate_spectrogram):
-            if audio_path and generate_spectrogram:
-                try:
-                    return (
-                        gr.update(visible=True),
-                        gr.update(
-                            visible=True,
-                            value=utils.spectrogram_from_file(
-                                audio_path,
-                                fig_size=(20, 4),
-                                fig_num=MATPLOTLIB_FIGURE_NUM,
-                                **gu.spectrogram_settings(),
-                            ),
-                        ),
-                    )
-                except Exception as e:
-                    raise gr.Error(
-                        loc.localize("single-tab-generate-spectrogram-error")
-                    ) from e
-            else:
-                return (gr.update(visible=False), None)
+            return spectrogram_updates(audio_path, generate_spectrogram)
+
+        @gu.gui_runtime_error_handler
+        def draw_spectrogram_for_selection(file_path, generate_spectrogram):
+            # None: the dialog was cancelled and the shown spectrogram stays.
+            if file_path is None:
+                return gr.skip(), gr.skip()
+
+            return spectrogram_updates(file_path, generate_spectrogram)
 
         generate_spectrogram_cb.change(
             try_generate_spectrogram,
@@ -344,17 +354,21 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             show_progress_on=generate_spectrogram_cb,
         )
 
+        # The player first; the spectrogram follows and may fail on its own.
         select_file_button.click(
             select_and_load_audio_file,
-            inputs=[generate_spectrogram_cb],
             outputs=[
                 audio_path_state,
                 selected_file_label,
                 audio_input,
-                spectrogram_group,
-                spectrogram_output,
                 single_file_analyze,
+                spectrogram_request,
             ],
+        ).then(
+            draw_spectrogram_for_selection,
+            inputs=[spectrogram_request, generate_spectrogram_cb],
+            outputs=[spectrogram_group, spectrogram_output],
+            show_progress_on=generate_spectrogram_cb,
         )
 
         inputs = [
@@ -369,7 +383,7 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
             sample_settings["fmin_number"],
             sample_settings["fmax_number"],
             species_settings["species_list_radio"],
-            species_settings["species_file_input"],
+            species_settings["species_file_state"],
             species_settings["lat_number"],
             species_settings["lon_number"],
             species_settings["week_number"],
@@ -474,12 +488,6 @@ def build_single_analysis_tab() -> gu.TAB_BUILDER_RESULT:
         kaleidoscope_download_button.click(
             download_kaleidoscope, inputs=last_prediction_state
         )
-
-    return (
-        species_settings["lat_number"],
-        species_settings["lon_number"],
-        species_settings["map_plot"],
-    )
 
 
 if __name__ == "__main__":

@@ -1,10 +1,3 @@
-"""The train tab's base model choice.
-
-The classifier is trained on one BirdNET version's embeddings, chosen with a radio
-that defaults to the newest version. A cache file fixes the version it was created
-with, so loading one shows that version and disables the choice.
-"""
-
 import os
 import re
 from types import SimpleNamespace
@@ -22,15 +15,6 @@ from birdnet_analyzer.gui import train  # noqa: E402
 from birdnet_analyzer.gui import utils as gu  # noqa: E402
 
 
-@pytest.fixture
-def appdir(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "APPDIR", tmp_path)
-    monkeypatch.setattr(settings, "STATE_SETTINGS_PATH", str(tmp_path / "state.json"))
-    monkeypatch.setattr(settings, "ERROR_LOG_FILE", str(tmp_path / "error_log.txt"))
-    monkeypatch.setattr(gs, "_PERSISTED", [])
-    return tmp_path
-
-
 def _radio(label_key):
     label = loc.localize(label_key)
 
@@ -45,21 +29,11 @@ def build():
     with gr.Blocks() as demo:
         train.build_train_tab()
 
-    base_model = _radio("training-tab-base-model-radio-label")
-    cache_mode = _radio("training-tab-cache-mode-radio-label")
-    on_cache_mode_change = next(
-        event.fn
-        for event in demo.fns.values()
-        if event.targets
-        and event.targets[0] == (cache_mode._id, "change")
-        and base_model in event.outputs
-    )
-
-    return base_model, on_cache_mode_change
+    return demo, _radio("training-tab-base-model-radio-label")
 
 
 def test_the_newest_version_is_the_default_base(appdir):
-    base_model, _ = build()
+    _, base_model = build()
 
     assert base_model.value == cfg.DEFAULT_ACOUSTIC_MODEL_VERSION
     assert base_model.interactive
@@ -67,19 +41,20 @@ def test_the_newest_version_is_the_default_base(appdir):
 
 
 def test_loading_a_cache_disables_the_base_choice(appdir):
-    _, on_cache_mode_change = build()
+    demo, base_model = build()
+    cache_mode = _radio("training-tab-cache-mode-radio-label")
 
-    *_, update = on_cache_mode_change("load", None, None)
-    assert update["interactive"] is False
+    disabled = _fire(demo, cache_mode, {cache_mode: "load"})[base_model]
+    enabled = _fire(demo, cache_mode, {cache_mode: "none"})[base_model]
 
-    *_, update = on_cache_mode_change("none", None, None)
-    assert update["interactive"] is True
+    assert disabled["interactive"] is False
+    assert enabled["interactive"] is True
 
 
 def test_the_base_choice_is_built_disabled_when_a_cache_is_persisted(appdir):
     settings.set_tab_setting("train", "cache_mode_radio", "load")
 
-    base_model, _ = build()
+    _, base_model = build()
 
     assert not base_model.interactive
 
@@ -359,6 +334,20 @@ def test_the_autotune_repeats_are_editable_only_with_several_folds(
     assert update["interactive"] is editable
 
 
+def test_a_cache_mode_switch_is_a_single_update(appdir):
+    with gr.Blocks() as demo:
+        train.build_train_tab()
+    cache_mode = _radio("training-tab-cache-mode-radio-label")
+
+    listeners = [
+        event
+        for event in demo.fns.values()
+        if (cache_mode._id, "change") in event.targets
+    ]
+
+    assert len(listeners) == 1
+
+
 def test_changing_the_cache_mode_forgets_the_picked_cache_location(appdir):
     with gr.Blocks() as demo:
         train.build_train_tab()
@@ -404,7 +393,9 @@ def test_selecting_a_cache_shows_its_version(appdir, monkeypatch, tmp_path):
     assert update == gr.update(value="2.4")
 
 
-def test_a_failing_folder_listing_is_logged_and_shown(appdir, monkeypatch, tmp_path):
+def test_a_failing_folder_listing_is_logged_and_shown(
+    appdir, handler, monkeypatch, tmp_path
+):
     logged = []
     monkeypatch.setattr(gu.utils, "write_error_log", logged.append)
     monkeypatch.setattr(gu, "select_folder", lambda **_: str(tmp_path))
@@ -413,16 +404,9 @@ def test_a_failing_folder_listing_is_logged_and_shown(appdir, monkeypatch, tmp_p
         raise OSError("disk")
 
     monkeypatch.setattr(train.utils, "list_subdirectories", fail)
-    with gr.Blocks() as demo:
-        train.build_train_tab()
-    select = next(
-        event.fn
-        for event in demo.fns.values()
-        if getattr(event.fn, "__name__", "") == "selection_fn"
-    )
 
     with pytest.raises(gr.Error, match="disk"):
-        select()
+        handler(train.build_train_tab, "selection_fn")()
 
     assert len(logged) == 1
 

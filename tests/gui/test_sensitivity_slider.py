@@ -1,9 +1,4 @@
-"""The sensitivity slider follows the selected model.
-
-Every BirdNET model and custom classifier takes a sensitivity. Selecting Perch
-disables the slider and shows 1.0 (what the analysis will use); switching back
-restores the value the user last set.
-"""
+"""The sensitivity slider follows the selected model."""
 
 import pytest
 
@@ -12,28 +7,6 @@ gr = pytest.importorskip("gradio")
 from birdnet_analyzer import settings  # noqa: E402
 from birdnet_analyzer.gui import state as gs  # noqa: E402
 from birdnet_analyzer.gui import utils as gu  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-def no_map_figure(monkeypatch):
-    monkeypatch.setattr(gu, "plot_map_scatter_mapbox", lambda *a, **k: None)
-
-
-@pytest.fixture
-def appdir(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "APPDIR", tmp_path)
-    monkeypatch.setattr(settings, "STATE_SETTINGS_PATH", str(tmp_path / "state.json"))
-    monkeypatch.setattr(settings, "ERROR_LOG_FILE", str(tmp_path / "error_log.txt"))
-    monkeypatch.setattr(gs, "_PERSISTED", [])
-    return tmp_path
-
-
-@pytest.fixture
-def perch_offered(monkeypatch):
-    """macOS drops Perch from the choices, and a persisted choice that is not
-    offered falls back to the default model."""
-    choices = [*gu.model_choices(), gu.USE_PERCH]
-    monkeypatch.setattr(gu, "model_choices", lambda: list(dict.fromkeys(choices)))
 
 
 def build():
@@ -59,20 +32,22 @@ def test_slider_disabled_for_perch_and_restored_for_birdnet(appdir):
     assert slider.interactive
     assert slider.value == 1.25
 
-    to_3_0, *_ = on_model_change(gu.USE_BIRDNET_3_0, gu.ALL_SPECIES, 0.0, "en_us")
+    to_3_0, *_ = on_model_change(gu.USE_BIRDNET_3_0, gu.ALL_SPECIES, 0.0, "en_us", None)
     assert to_3_0["interactive"] is True
     assert to_3_0["value"] == 1.25
 
-    to_perch, *_ = on_model_change(gu.USE_PERCH, gu.ALL_SPECIES, 0.0, "en_us")
+    to_perch, *_ = on_model_change(gu.USE_PERCH, gu.ALL_SPECIES, 0.0, "en_us", None)
     assert to_perch["interactive"] is False
     assert to_perch["value"] == 1.0
 
-    to_custom, *_ = on_model_change(gu.CUSTOM_CLASSIFIER, gu.ALL_SPECIES, 0.0, "en_us")
+    to_custom, *_ = on_model_change(
+        gu.CUSTOM_CLASSIFIER, gu.ALL_SPECIES, 0.0, "en_us", None
+    )
     assert to_custom["interactive"] is True
     assert to_custom["value"] == 1.25, "the user's sensitivity comes back"
 
 
-def test_slider_built_disabled_at_1_0_when_perch_is_persisted(appdir, perch_offered):
+def test_slider_built_disabled_at_1_0_when_perch_is_persisted(appdir):
     settings.set_tab_setting("multi", "sensitivity_slider", 1.25)
     settings.set_tab_setting("multi", "model_selection_radio", gu.USE_PERCH)
 
@@ -90,7 +65,7 @@ def test_slider_built_disabled_at_1_0_when_perch_is_persisted(appdir, perch_offe
     ],
 )
 def test_a_preset_shows_its_sensitivity_only_where_the_model_takes_one(
-    appdir, perch_offered, model, shown
+    appdir, model, shown
 ):
     settings.set_tab_setting("multi", "model_selection_radio", gu.USE_PERCH)
     state = gs.TabState("multi")
@@ -111,12 +86,12 @@ def test_an_unusable_classifier_is_not_selected(appdir, monkeypatch):
     import birdnet_analyzer.gui.localization as loc
     from birdnet_analyzer import model_utils
 
-    def reject(path):
+    def reject(path, **kwargs):
         raise ValueError("looks like a detached classifier head")
 
     warnings = []
     monkeypatch.setattr(gu, "select_file", lambda *a, **k: "head_detached.tflite")
-    monkeypatch.setattr(model_utils, "classifier_version", reject)
+    monkeypatch.setattr(model_utils, "classifier_info", reject)
     monkeypatch.setattr(
         gr, "Warning", lambda message, *a, **k: warnings.append(message)
     )
@@ -130,7 +105,7 @@ def test_an_unusable_classifier_is_not_selected(appdir, monkeypatch):
         if fn.targets and fn.targets[0][1] == "click" and state in fn.outputs
     )
 
-    assert on_select() == (gr.skip(), gr.skip(), gr.skip())
+    assert on_select() == gr.skip()
     assert warnings == [
         loc.localize("species-list-custom-classifier-invalid-warning").format(
             "looks like a detached classifier head"

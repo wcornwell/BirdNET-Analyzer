@@ -53,7 +53,7 @@ import birdnet_analyzer.gui.single_file as sfa
 import birdnet_analyzer.gui.utils as gu
 
 reads_on_import = list(reads)
-on_import = [gu.CUSTOM_SPECIES, sfa.HEADER_CONFIDENCE_LBL]
+on_import = [gu._label(gu.CUSTOM_SPECIES), sfa.HEADER_CONFIDENCE_LBL]
 
 import birdnet_analyzer.gui.localization as loc
 
@@ -64,7 +64,7 @@ print(
         {
             "reads": reads_on_import,
             "on_import": on_import,
-            "loaded": [gu.CUSTOM_SPECIES, sfa.HEADER_CONFIDENCE_LBL],
+            "loaded": [gu._label(gu.CUSTOM_SPECIES), sfa.HEADER_CONFIDENCE_LBL],
         }
     )
 )
@@ -117,7 +117,9 @@ def test_the_window_opens_in_the_language_of_the_settings(monkeypatch, gui_main)
     monkeypatch.setattr(
         gu,
         "open_window",
-        lambda builders: seen.append([gu.CUSTOM_SPECIES, sfa.HEADER_CONFIDENCE_LBL]),
+        lambda builders: seen.append(
+            [gu._label(gu.CUSTOM_SPECIES), sfa.HEADER_CONFIDENCE_LBL]
+        ),
     )
 
     gui_main()
@@ -158,3 +160,28 @@ def test_the_window_is_built_without_a_warning(monkeypatch, gui_main):
     assert not caught, "\n".join(
         f"{w.category.__name__} at {w.filename}:{w.lineno}: {w.message}" for w in caught
     )
+
+
+def test_an_unavailable_model_directory_is_warned_about_when_the_page_loads(
+    appdir, monkeypatch, gui_main
+):
+    built = []
+
+    def launch_instead(demo, *args, **kwargs):
+        built.append(demo)
+        raise WindowBuilt
+
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace())
+    monkeypatch.setattr(gu, "_get_network_shortcuts", list)
+    monkeypatch.setattr(gr.Blocks, "launch", launch_instead)
+    monkeypatch.setattr(settings, "MODEL_DIR_STARTUP_WARNING", "X:/unplugged")
+
+    with pytest.raises(WindowBuilt):
+        gui_main()
+
+    on_load = [
+        event.fn
+        for event in built[0].fns.values()
+        if any(trigger == "load" for _, trigger in event.targets)
+    ]
+    assert gu._show_startup_warnings in on_load

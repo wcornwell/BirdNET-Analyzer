@@ -51,13 +51,26 @@ MODEL_DIR_ENV_VAR = "BIRDNET_APP_DATA"
 MODEL_DIR_MIN_FREE_BYTES = 2 * 1024**3
 
 # Set when the configured model directory was unusable at startup (e.g. an
-# unplugged data drive) and the default is used for this session instead; the
-# GUI surfaces it as a warning once it is up.
+# unplugged data drive) and the default is used instead, until the setting is
+# changed; the GUI surfaces it as a warning.
 MODEL_DIR_STARTUP_WARNING: str | None = None
 
 # Whether the model directory came from the environment variable (as opposed to
 # the GUI setting or a default); the settings tab locks its controls then.
 MODEL_DIR_FROM_ENV = False
+
+
+def apply_matplotlib_config_directory() -> None:
+    """Keeps matplotlib's font cache across launches of the frozen mac app.
+
+    PyInstaller's matplotlib runtime hook points MPLCONFIGDIR at a temporary
+    directory it deletes at exit, so every frozen process rebuilt the font cache
+    on its first matplotlib import; on macOS that is a system_profiler run of
+    about 15 s. Windows keeps the hook's behaviour: its scan is fast, and APPDIR
+    is the roaming profile.
+    """
+    if FROZEN and sys.platform == "darwin":
+        os.environ["MPLCONFIGDIR"] = str(APPDIR / "matplotlib")
 
 
 def default_model_directory() -> Path:
@@ -159,11 +172,11 @@ def _report_fatal_startup_error(message: str) -> None:
 def apply_model_directory() -> None:
     """Points the birdnet library's model directory at the right place.
 
-    Must run before ``birdnet`` is imported anywhere in the process: the library
-    reads ``BIRDNET_APP_DATA`` once, at import time. Precedence: an already-set
-    environment variable (automation - fails fast rather than falling back), the
-    GUI's persisted setting (any run mode - falls back to the default with a
-    warning when unusable), then the frozen app's default. From source or Docker
+    Must run before the library resolves its first model path from
+    ``BIRDNET_APP_DATA``, which it does whenever it needs one. Precedence: an
+    already-set environment variable (automation - fails fast rather than falling
+    back), the GUI's persisted setting (any run mode - falls back to the default
+    with a warning when unusable), then the frozen app's default. From source or Docker
     with nothing configured, the library's own default stands, so pip installs,
     CI caches and the baked Docker image keep their existing model stores.
     """
@@ -184,14 +197,32 @@ def apply_model_directory() -> None:
         return
 
     stored = _stored_model_directory()
-    if stored:
-        if _usable_directory(stored):
-            os.environ[MODEL_DIR_ENV_VAR] = str(Path(stored).expanduser())
-            return
+    if stored and not _usable_directory(stored):
         MODEL_DIR_STARTUP_WARNING = stored
+        stored = None
 
-    if FROZEN:
+    _point_library_at(stored)
+
+
+def _point_library_at(directory: str | None) -> None:
+    if directory:
+        os.environ[MODEL_DIR_ENV_VAR] = str(Path(directory).expanduser())
+    elif FROZEN:
         os.environ[MODEL_DIR_ENV_VAR] = str(default_model_directory())
+    else:
+        os.environ.pop(MODEL_DIR_ENV_VAR, None)
+
+
+def set_model_directory(directory: str) -> None:
+    """Stores the GUI's model directory and points the library at it.
+
+    An empty ``directory`` restores the default.
+    """
+    global MODEL_DIR_STARTUP_WARNING  # noqa: PLW0603
+
+    set_setting(MODEL_DIR_SETTING_KEY, directory)
+    _point_library_at(directory)
+    MODEL_DIR_STARTUP_WARNING = None
 
 
 def _backup_path(log_path: Path) -> Path:
